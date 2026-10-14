@@ -2,6 +2,9 @@
 .pio/
 compile_commands.json
 
+# VSCode CMake Tools 产物（非项目文件，勿提交）
+build/
+
 # 编辑器/系统
 .vscode/
 *.swp
