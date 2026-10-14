@@ -327,7 +327,7 @@ bool mesh_send_beacon() {
     f.dst_id     = 0;              // 广播
     f.relay_id   = 0;
     f.seq        = mesh_next_seq();
-    f.ttl        = 1;              // 只一跳，不转发
+    f.ttl        = MESH_BEACON_TTL;   // 允许 1 跳转发（P1-3）
     f.orig_sysid = 0;
     f.payload    = nullptr;
     f.payload_len = 0;
@@ -396,16 +396,14 @@ static void mesh_task_func(void* arg) {
         // 去重（重复帧不处理不转发）
         if (!mesh_ingress(&f)) continue;
 
-        // BEACON：记录邻居链路质量 + 对齐 ADR 周期，不投递不转发
+        // BEACON：记录邻居链路质量 + 对齐 ADR 周期；不投递，但允许转发（P1-3）
         if (f.type == FRAME_BEACON) {
-            route_learn(f.src_id, 0);
+            route_learn(f.src_id, f.relay_id);
             route_update_rssi(f.src_id, item.rssi);
-            adr_on_beacon();
-            continue;
-        }
-
-        // PING：回 ACK，不投递不转发（探测帧到此为止）
-        if (f.type == FRAME_PING) {
+            adr_on_beacon(f.src_id, f.relay_id);   // P1-3：多跳信标只算可见性，不对齐
+            // 不 continue：让信标继续走到下面的转发判定（dst=0、ttl>0 → 中继转发一次）
+        } else if (f.type == FRAME_PING) {
+            // PING：回 ACK，不投递不转发（探测帧到此为止）
             mac_send_ack(f.src_id, f.seq);
             continue;
         }

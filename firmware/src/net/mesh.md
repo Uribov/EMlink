@@ -54,7 +54,7 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 1b. 撞号检测（P0-4）：`src_id == 本机 && !seq_is_mine(seq)`（陌生帧自称本机号）→ `g_id_conflict++`
 2. ACK 帧 → `mac_on_ack_rx` + 匹配 ping 等待（`g_ping_wait_seq`），continue
 3. 去重 `mesh_ingress`（命中 → drop_dup）
-4. BEACON 帧 → `route_learn` + `route_update_rssi` + `adr_on_beacon()`，continue
+4. BEACON 帧 → `route_learn(src, relay_id)` + `route_update_rssi` + `adr_on_beacon(src, relay_id)`，**不 continue** → 继续走到转发判定（`dst=0`、`ttl>0` → 中继转发一次，P1-3：信标可多跳）
 5. PING 帧 → 回 ACK，不投递不转发，continue
 6. 数据帧且 ack_req → `mac_send_ack`
 7. 广播帧 → `route_learn(src, relay_id)` 学反向路径
@@ -83,6 +83,6 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 ### mesh_send / mesh_send_ctrl / mesh_send_beacon / mesh_ping
 - `mesh_send(dst,qos,ack,payload,len,orig_sysid)`：发 FRAME_DATA，单播查 route_next_hop 定 relay_id，未知回退广播；**len 上限 175**，frame_encode 前 `crypto_seal_frame` 加密
 - `mesh_send_ctrl(type,dst,qos,ack,payload,len)`：发控制帧（FRAME_NACK/FRAME_CFG），同样走加密 + relay 逻辑
-- `mesh_send_beacon()`：FRAME_BEACON，空 payload，ttl=1（只一跳不转发），proto=CUSTOM（不加密）
+- `mesh_send_beacon()`：FRAME_BEACON，空 payload，`ttl = MESH_BEACON_TTL`(=2：GCS 发 + 最多 1 跳转发，P1-3)，proto=CUSTOM（不加密）
 - `mesh_ping(dst,timeout,rssi_out)`：发 FRAME_PING 等 ACK 测 RTT，阻塞轮询 `g_ping_done`（mesh_task 收到匹配 ACK 时置位）
 - 四个发送函数 seq 都走 `mesh_next_seq()`（不直接碰 `g_seq`）

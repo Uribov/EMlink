@@ -16,6 +16,7 @@
 #include "../service/addr_map.h"
 #include "../app/stats.h"
 #include "../link/duty.h"
+#include "../link/adr.h"
 #include <string.h>
 
 static TaskHandle_t g_cli_task = nullptr;
@@ -144,6 +145,12 @@ void cli_handle_line(const char* line) {
                  (unsigned)route_expired_count(), (unsigned)route_evict_count(),
                  (unsigned)addr_map_expired_count(), (unsigned)addr_map_evict_count(),
                  (unsigned)frag_slot_evict_count());
+        cli_print(line);
+        snprintf(line, sizeof(line), "ADR: 对齐=%s 信标=%u 多跳=%u 失步=%u 多锚点=%u SF=%u\r\n",
+                 adr_has_beacon() ? (adr_compat_mode() ? "降级" : "是") : "否",
+                 (unsigned)adr_beacon_count(), (unsigned)adr_beacon_hop_count(),
+                 (unsigned)adr_desync_count(), (unsigned)adr_multi_anchor_count(),
+                 (unsigned)adr_current_sf());
         cli_print(line);
     } else if (strcmp(cmd, "stats") == 0) {
         stats_t s;

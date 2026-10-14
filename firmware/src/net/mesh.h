@@ -10,6 +10,10 @@
 #define MESH_DEDUP_WINDOW   256
 #define MESH_DEDUP_TTL_MS   30000
 
+// BEACON 跳数上限（P1-3）：GCS 发 + 最多 1 跳转发。
+// 为什么不是更大：信标在 SF10 下每跳 ≈0.4s，而慢速窗只有 1s，再远就跑出窗口了（外场可调）
+#define MESH_BEACON_TTL  2
+
 // 初始化去重表
 void mesh_init();
 

@@ -439,12 +439,13 @@ mavlink monitor on      （旁路观察 MAVLink，预留）
 - 仍未做：**网页/OTA 无鉴权**（属产品决策）
 - 位置：`service/ota`（依赖 nvs_cfg 的 wifi_ssid/pass + crypto 设密钥 + radio suspend/resume/is_ready）
 
-### 13.3 自适应速率（adr）—— ✅ 已实现（BEACON 锚定固定速率表）
+### 13.3 自适应速率（adr）—— ✅ 已实现（BEACON 锚定固定速率表；P1-3 加固）
 - 非真动态自适应（不按 RSSI/SNR 实时调），就是一张固定速率表，靠 GCS 的 BEACON 对齐全网节奏
 - GCS 每 5s 发 BEACON（固定 SF10 锚点）；5s 周期：t=0~1s SF10（慢速保链接）、t=1~4.5s SF7（快速）、t=4.5~5s SF10（guard 窗抵消 BEACON 空中传播延迟）
 - 非 GCS 开机停 SF10 等 BEACON，收到即对齐周期起点；`radio_set_sf`（standby→setSpreadingFactor→startReceive）运行时切 SF
-- 真动态自适应（按邻居 RSSI/SNR 调 SF/BW/功率）留后演进
-- 位置：`link/adr`（依赖 radio 的 radio_set_sf + mesh 的 BEACON + role 判 GCS）
+- **P1-3 兜底**：信标 ttl 改为 `MESH_BEACON_TTL`(=2) 可被中继转发一次，但**只有直收（`relay_id==0`）的信标参与对齐**（多跳时延无法补偿）；失去对齐基准 15s（权威信标超时，或"只见多跳信标却始终等不到权威信标"）→ **降级到固定速率兼容模式**并告警，重新收到权威信标即自愈；半周期内出现第二个锚点只计数不选举；对齐点按信标 ToA 做补偿（GCS 的时间戳是"入队"时刻，本机基准是"收完"）
+- 真动态自适应（按邻居 RSSI/SNR 调 SF/BW/功率）+ **多 GCS 主从选举**留后演进
+- 位置：`link/adr`（依赖 radio 的 radio_set_sf/airtime_ms + mesh 的 BEACON + role 判 GCS）
 
 ### 13.4 远程参数同步（FRAME_CFG）—— ✅ 已实现
 - 帧类型 `FRAME_CFG`（=6）；GCS CLI `cfg <键> <值>` 广播 `key=value` 给全网
