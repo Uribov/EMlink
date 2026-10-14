@@ -98,7 +98,7 @@ radio.begin(freq, bw, sf, cr, syncWord, pwr);
 |---|---|---|---|
 | 驱动 | `radio` | 射频抽象接口：收发、CAD 侦听、RSSI/SNR、复位（SX126x 等按宏实现） | 0 |
 | 驱动 | `uart_fc` | 与飞控的 UART（DMA 环形缓冲） | 1 |
-| 驱动 | `usb_cdc` | 双虚拟串口：CDC0=MAVLink，CDC1=CLI | 1 |
+| 驱动 | `usb_cdc` | **单口分流**：一个 USB 虚拟串口同时跑 MAVLink 与 CLI（`0xFD/0xFE` 按帧收，其余当文本；P1-6） | 1 |
 | 驱动 | `power_detect` | USB 插入/拔除检测、电源状态机输入 | 1 |
 | 链路 | `frame_codec` | 组帧/拆帧、CRC、序号管理 | 0 |
 | 链路 | `mac` | LBT（CAD）、ACK 超时重传、退避 | 0 |
@@ -357,7 +357,7 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 | `wifi_pass` | 空 | WiFi AP 密码（空=无密码） |
 | `ota_url` | 空 | 预留（将来从 URL 拉固件） |
 
-CLI（CDC1）常用命令：
+CLI（USB 虚拟串口，与 MAVLink 同一个口；P1-6 单口分流）常用命令：
 
 ```
 role gcs|air|relay      set <键> <值>      get

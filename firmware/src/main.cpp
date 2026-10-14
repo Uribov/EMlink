@@ -104,10 +104,14 @@ void setup() {
     if (g_cfg.role == ROLE_AIR) {
         uart_fc_init(g_cfg.uart_baud);
         uart_fc_start();
-    } else if (g_cfg.role == ROLE_GCS) {
-        usb_cdc_init();
-        usb_cdc_start();
     }
+    // GCS/RELAY/UNSET 不再在此单独起数据通路：
+    // P1-6 单口分流后，USB 通路对三种角色都开（CLI 就在这个口上）。
+
+    // P1-6：USB 任务无条件启动——CLI 走 USB 这一个口，三种角色都要起；
+    // 否则首次上电 role 未设（ROLE_UNSET）时 GCS 分支不执行，就没有命令入口。
+    usb_cdc_init();
+    usb_cdc_start();
 
     // 6. 交互 + 统计 + 安全
     cli_init();
@@ -124,13 +128,8 @@ void setup() {
 }
 
 void loop() {
-    // 仅配置模式（role 未设）保留串口回显，验证 USB CDC 通路；
-    // 正式角色下 Serial 由 usb_task 接管做 MAVLink 数据，这里不抢。
-    if (g_cfg.role == ROLE_UNSET) {
-        while (Serial.available()) {
-            Serial.write(Serial.read());
-        }
-    }
+    // P1-6：不再在此回显——Serial 的读已由 usb_task 独占（单口分流的唯一读者），
+    // 这里再读会抢走本该给 CLI 的字节。通路是否正常由 CLI 自身体现（敲 help 有回显）。
     ota_boot_confirm_tick();   // P1-5：系统健康后向 bootloader 确认固件（取消回滚）
 
     // EV_CFG_CHANGED：CLI save 后置位 → 重载内存镜像并提示需 reset
