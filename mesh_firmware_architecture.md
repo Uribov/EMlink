@@ -191,7 +191,7 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 
 | 偏移 | 字段 | 字节 | 说明 |
 |---|---|---|---|
-| 0 | `ver:type` | 1 | 高4b 版本=1；低4b 类型 0=DATA 1=ACK 2=NACK 3=BEACON 4=PING 5=ROUTE(预留) |
+| 0 | `ver:type` | 1 | 高4b 版本=1；低4b 类型 0=DATA 1=ACK 2=NACK 3=BEACON 4=PING 5=ROUTE(预留) 6=CFG |
 | 1 | `flags` | 1 | `qos[7:6]`、`ack_req[5]`、`frag[4]`、`proto[3:2]`、`enc[0]`、`reserved[1]` |
 | 2 | `src_id` | 1 | 源节点地址 1–254 |
 | 3 | `dst_id` | 1 | 目的节点地址；`0x00`=广播 |
@@ -332,8 +332,8 @@ CLI（CDC1）常用命令：
 role gcs|air|relay      set <键> <值>      get
 save                    reset              status
 stats                   crypto <32hex>|off wifi [off]
-scan                    ping <node_id>
-mavlink monitor on      （旁路观察 MAVLink）
+scan                    ping <node_id>     cfg <键> <值>
+mavlink monitor on      （旁路观察 MAVLink，预留）
 ```
 
 ---
@@ -411,9 +411,10 @@ mavlink monitor on      （旁路观察 MAVLink）
 - 真动态自适应（按邻居 RSSI/SNR 调 SF/BW/功率）留后演进
 - 位置：`link/adr`（依赖 radio 的 radio_set_sf + mesh 的 BEACON + role 判 GCS）
 
-### 13.4 远程参数同步（预留，无独立模块）
-- 帧类型预留「配置帧」，GCS 广播配置给全网
-- 实现时在 `frame_codec.h` 加 `FRAME_CFG` 类型
+### 13.4 远程参数同步（FRAME_CFG）—— ✅ 已实现
+- 帧类型 `FRAME_CFG`（=6）；GCS CLI `cfg <键> <值>` 广播 `key=value` 给全网
+- 节点收到 → `nvs_cfg_apply_kv` 解析应用（走加密）；**白名单拒 `role`**（防误操作断链）
+- 参数重启后生效；`FRAME_CFG` 帧 payload 是纯文本 key=value，不涉及 MAVLink
 
 ---
 
@@ -465,5 +466,5 @@ mavlink monitor on      （旁路观察 MAVLink）
 
 - **真动态 ADR**：现在固定速率表，将来按邻居 RSSI/SNR 实时调 SF/BW/功率（§13.3 已留演进口）。
 - **主动路由表**：节点 >8 时上 `FRAME_ROUTE` 主动路由（§4.5 已留位）。
-- **远程参数同步**：`FRAME_CFG` 配置帧，GCS 一键广播参数给全网（§13.4）。
 - **真随机数源 / 密钥轮换**：crypto 现用静态密钥，将来可加开机协商、定期轮换。
+- **mavlink monitor**：CLI 旁路观察 MAVLink（调试用，已留命令位）。

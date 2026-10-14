@@ -31,6 +31,18 @@ static size_t  g_expected = 0;
 // 心跳
 static uint32_t g_last_hb_ms = 0;
 
+// 最近一次分片发送缓存（NACK 补发用）。跨核访问（core1 发、core0 补），加锁。
+static SemaphoreHandle_t g_tx_cache_lock = nullptr;
+static uint8_t  g_tx_cache[4 * FRAME_MAX_PLAIN];   // 最多 4 片
+static size_t   g_tx_cache_len = 0;                // 原始数据总长
+static uint8_t  g_tx_cache_sysid = 0;
+static uint8_t  g_tx_cache_frag_seq = 0;           // 该组分片号
+static uint8_t  g_tx_cache_total = 0;              // 总片数
+static uint8_t  g_tx_cache_qos = QOS0;
+
+// 补发缓冲（静态，避免 mesh_task 栈上放大数组）；仅 on_nack 用，单线程访问
+static uint8_t  g_resend[4 * FRAME_MAX_PLAIN];
+
 static TaskHandle_t g_mavlink_task = nullptr;
 
 // ---- CRC 校验（CRC-16/MCRF4XX，含 crc_extra）----
@@ -55,6 +67,7 @@ void mav_router_init(uint8_t local_sysid) {
     g_local_sysid = local_sysid;
     g_rxlen = 0;
     g_expected = 0;
+    if (!g_tx_cache_lock) g_tx_cache_lock = xSemaphoreCreateMutex();
     cfg_t c;
     if (nvs_cfg_load(&c)) {
         g_role = c.role;
@@ -65,6 +78,61 @@ void mav_router_init(uint8_t local_sysid) {
 
 bool mav_router_heartbeat_ok() {
     return (millis() - g_last_hb_ms) < 5000;   // 5s 内有心跳视为在线
+}
+
+// 收到 NACK：从缓存补发缺失分片
+void mav_router_on_nack(const uint8_t* payload, size_t len) {
+    if (!payload || len < 3) return;
+    if (!g_tx_cache_lock) return;
+
+    uint8_t sysid = payload[0];
+    uint8_t fseq  = payload[1];
+    uint8_t missing = payload[2];
+
+    // 匹配缓存：sysid + frag_seq 都对上才补
+    xSemaphoreTake(g_tx_cache_lock, portMAX_DELAY);
+    if (g_tx_cache_len == 0 || sysid != g_tx_cache_sysid || fseq != g_tx_cache_frag_seq) {
+        xSemaphoreGive(g_tx_cache_lock);
+        return;   // 不是我们发的组 / 已过期
+    }
+
+    // 复制缓存到静态补发缓冲（锁内短，锁外慢发）
+    size_t  dlen = g_tx_cache_len;
+    uint8_t total = g_tx_cache_total;
+    uint8_t qos   = g_tx_cache_qos;
+    memcpy(g_resend, g_tx_cache, dlen);
+    xSemaphoreGive(g_tx_cache_lock);
+
+    // 逐片补发缺失片
+    for (uint8_t i = 0; i < total; i++) {
+        if (!(missing & (1u << i))) continue;   // 不缺这片
+
+        size_t off  = (size_t)i * FRAME_MAX_PLAIN;
+        size_t plen = (i == total - 1) ? (dlen - off) : FRAME_MAX_PLAIN;
+        if (plen > FRAME_MAX_PLAIN) continue;
+
+        frag_hdr_t h = {};
+        h.msg_id = 0; h.frag_index = i; h.frag_total = total; h.frag_seq = fseq;
+
+        frame_t f = {};
+        f.type = FRAME_DATA; f.qos = qos; f.ack_req = false; f.frag = true;
+        f.proto = PROTO_MAVLINK; f.src_id = g_node_id; f.dst_id = 0;
+        f.seq = g_mesh_seq++; f.ttl = g_ttl; f.orig_sysid = sysid;
+        memcpy(f.frag_hdr, &h, 4);
+        f.payload = g_resend + off; f.payload_len = plen;
+
+        uint8_t seal_buf[FRAME_MAX_PAYLOAD];
+        crypto_seal_frame(&f, seal_buf, sizeof(seal_buf));
+
+        uint8_t buf[FRAME_MTU];
+        size_t bn = frame_encode(&f, buf, sizeof(buf));
+        if (bn) {
+            queue_item_t item = {};
+            memcpy(item.data, buf, bn);
+            item.len = (uint16_t)bn; item.qos = qos; item.ack_req = 0;
+            rtos_tx_enqueue(&item);
+        }
+    }
 }
 
 // ---- 路由：决定送本地串口还是转 LoRa ----
@@ -121,6 +189,19 @@ static void route_msg(const uint8_t* msg, size_t len, uint8_t source) {
             frag_hdr_t hdr = {};
             uint8_t pieces[4][FRAME_MAX_PLAIN];
             size_t n = frag_split(msg, len, pieces, 4, &hdr);
+
+            // 缓存原始数据（NACK 补发用）
+            if (g_tx_cache_lock && len <= sizeof(g_tx_cache)) {
+                xSemaphoreTake(g_tx_cache_lock, portMAX_DELAY);
+                memcpy(g_tx_cache, msg, len);
+                g_tx_cache_len      = len;
+                g_tx_cache_sysid    = sysid;
+                g_tx_cache_frag_seq = hdr.frag_seq;
+                g_tx_cache_total    = (uint8_t)n;
+                g_tx_cache_qos      = qos;
+                xSemaphoreGive(g_tx_cache_lock);
+            }
+
             for (size_t i = 0; i < n; i++) {
                 size_t off  = i * FRAME_MAX_PLAIN;
                 size_t plen = (i == n - 1) ? (len - off) : FRAME_MAX_PLAIN;

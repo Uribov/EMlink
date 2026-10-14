@@ -40,13 +40,15 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 
 ### mesh_task 收帧流程（按序）
 1. `frame_decode`（CRC 失败 → drop_crc）
-2. ACK 帧 → `mac_on_ack_rx`，continue
+2. ACK 帧 → `mac_on_ack_rx` + 匹配 ping 等待（`g_ping_wait_seq`），continue
 3. 去重 `mesh_ingress`（命中 → drop_dup）
-4. BEACON 帧 → `route_learn` + `route_update_rssi` + `adr_on_beacon()`（对齐 ADR 周期），continue
-5. 数据帧且 ack_req → `mac_send_ack`
-6. 广播帧 → `route_learn(src, relay_id)` 学反向路径
-7. 投递本机（dst=0 或 dst=自己）：若 `enc` 先 `crypto_open_frame` 解密（认证失败 → drop_crc 丢弃），再 `g_rx_cb`
-8. 转发判定（见下；**密文原样转发，不解密不重加密**）
+4. BEACON 帧 → `route_learn` + `route_update_rssi` + `adr_on_beacon()`，continue
+5. PING 帧 → 回 ACK，不投递不转发，continue
+6. 数据帧且 ack_req → `mac_send_ack`
+7. 广播帧 → `route_learn(src, relay_id)` 学反向路径
+8. 投递本机（dst=0 或 dst=自己；类型 DATA/NACK/CFG）：若 `enc` 先 `crypto_open_frame` 解密，再 `g_rx_cb`
+9. 转发判定（密文原样转发）
+- 循环带 100ms 超时收帧，超时也调 `frag_tick()`（缺件 NACK 检查）
 
 ### 转发判定（relay_id 语义，架构 §4.5）
 - 广播（dst=0）：人人转发一次，relay=本机
@@ -57,6 +59,8 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 - 键 (src_id, seq)；每源 last_seq + 256bit 位图；位 diff=last_seq-seq
 - seq 前进时位图左移 diff 位；槽 30s 未动重置（MESH_DEDUP_TTL_MS）
 
-### mesh_send / mesh_send_beacon
-- `mesh_send(dst,qos,ack,payload,len,orig_sysid)`：单播查 route_next_hop 定 relay_id，未知回退广播；**len 上限 175**（FRAME_MAX_PLAIN），frame_encode 前 `crypto_seal_frame` 加密
+### mesh_send / mesh_send_ctrl / mesh_send_beacon / mesh_ping
+- `mesh_send(dst,qos,ack,payload,len,orig_sysid)`：发 FRAME_DATA，单播查 route_next_hop 定 relay_id，未知回退广播；**len 上限 175**，frame_encode 前 `crypto_seal_frame` 加密
+- `mesh_send_ctrl(type,dst,qos,ack,payload,len)`：发控制帧（FRAME_NACK/FRAME_CFG），同样走加密 + relay 逻辑
 - `mesh_send_beacon()`：FRAME_BEACON，空 payload，ttl=1（只一跳不转发），proto=CUSTOM（不加密）
+- `mesh_ping(dst,timeout,rssi_out)`：发 FRAME_PING 等 ACK 测 RTT，阻塞轮询 `g_ping_done`（mesh_task 收到匹配 ACK 时置位）

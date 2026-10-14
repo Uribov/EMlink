@@ -32,17 +32,17 @@
 
 ```
 app:     role ─┬─ nvs_cfg, uart_fc, usb_cdc, mesh, mav_router
-         cli ─┬─ usb_cdc, nvs_cfg, crypto, ota, stats
+         cli ─┬─ usb_cdc, nvs_cfg, crypto, ota, stats, mesh, route, radio
          stats ─┬─ (各模块计数), watchdog
          failsafe_policy ─┬─ power_detect, mav_router, nvs_cfg
 service: mav_router ─┬─ frag, addr_map, mesh, crypto
-         frag ─┬─ frame_codec
+         frag ─┬─ frame_codec, mesh
          addr_map (无)
          nvs_cfg (Preferences)
          watchdog ─┬─ radio
          crypto ─┬─ frame_codec, nvs_cfg
          ota ─┬─ nvs_cfg, crypto, radio
-net:     mesh ─┬─ frame_codec, route, adr, crypto
+net:     mesh ─┬─ frame_codec, route, adr, crypto, frag
          route (无)
 link:    mac ─┬─ radio, frame_codec, duty, adr
          frame_codec (无，纯逻辑)

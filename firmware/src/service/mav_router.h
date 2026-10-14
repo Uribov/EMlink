@@ -30,5 +30,9 @@ void mav_router_handle_msg(const uint8_t* msg, size_t len);
 // 心跳是否超时（配合 failsafe）
 bool mav_router_heartbeat_ok();
 
+// 收到 NACK（frag 缺件催发）：从发送缓存补发缺失分片
+// payload = [orig_sysid, frag_seq, 缺失位图]
+void mav_router_on_nack(const uint8_t* payload, size_t len);
+
 // 启动 MAVLink 路由任务（内部 xTaskCreate mavlink_task_func，任务函数为模块内 static）
 void mav_router_start(void);

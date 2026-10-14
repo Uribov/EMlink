@@ -42,3 +42,8 @@ void nvs_cfg_factory(cfg_t* out);
 // 单项读写（CLI 的 set/get 用）
 bool nvs_cfg_set(const char* key, const char* val);
 bool nvs_cfg_get(const char* key, char* val, size_t len);
+
+// 应用一条 "key=value"（FRAME_CFG 远程参数同步用）
+// 白名单：role 拒绝远程改（防误操作断链）；其余走 nvs_cfg_set
+// 返回 false = 格式错 / 未知 key / 被白名单拦截
+bool nvs_cfg_apply_kv(const uint8_t* data, size_t len);

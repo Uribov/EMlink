@@ -9,6 +9,7 @@
 #include "../link/adr.h"
 #include "../service/nvs_cfg.h"
 #include "../service/crypto.h"
+#include "../service/frag.h"
 
 // ---- 去重表 ----
 #define MESH_MAX_SRC 16
@@ -31,6 +32,12 @@ static mesh_rx_cb_t g_rx_cb = nullptr;
 // 统计
 static uint32_t g_fwd = 0, g_drop_ttl = 0, g_drop_dup = 0, g_drop_crc = 0, g_rx = 0;
 static uint32_t g_last_rx_ms = 0;
+
+// ping 等待状态（mesh_ping 阻塞期间，mesh_task 收到匹配 ACK 时置位）
+static volatile uint16_t g_ping_wait_seq = 0;   // 0 = 无等待
+static volatile bool     g_ping_done = false;
+static volatile int16_t  g_ping_rssi = 0;
+static volatile uint32_t g_ping_start_ms = 0;
 
 // ---- 位图工具 ----
 static bool bm_get(const uint32_t* bm, int bit) { return (bm[bit >> 5] >> (bit & 31)) & 1; }
@@ -159,6 +166,109 @@ bool mesh_send(uint8_t dst_id, uint8_t qos, bool ack_req,
     return rtos_tx_enqueue(&item);
 }
 
+// ping 探测：单播发 FRAME_PING，等 ACK 测 RTT
+int32_t mesh_ping(uint8_t dst_id, uint32_t timeout_ms, int16_t* rssi_out) {
+    frame_t f = {};
+    f.type       = FRAME_PING;
+    f.qos        = QOS1;
+    f.ack_req    = true;
+    f.frag       = false;
+    f.proto      = PROTO_CUSTOM;
+    f.src_id     = g_my_node_id;
+    f.dst_id     = dst_id;
+    f.relay_id   = 0;
+    f.seq        = g_seq++;
+    f.ttl        = g_my_ttl;
+    f.orig_sysid = 0;
+    f.payload    = nullptr;
+    f.payload_len = 0;
+
+    // 单播路径（同 mesh_send 的 relay 逻辑）
+    if (dst_id != 0) {
+        uint8_t nh = route_next_hop(dst_id);
+        if (nh == 0) {
+            f.dst_id = 0;            // 路径未知回退广播
+        } else if (nh != dst_id) {
+            f.relay_id = nh;         // 经中继
+        }
+    }
+
+    uint8_t buf[FRAME_MTU];
+    size_t n = frame_encode(&f, buf, sizeof(buf));
+    if (n == 0) return -1;
+
+    queue_item_t item = {};
+    memcpy(item.data, buf, n);
+    item.len = (uint16_t)n;
+    item.qos = QOS1;
+    item.ack_req = 1;
+
+    // 登记等待，再投队列（避免 ACK 先于登记到达）
+    g_ping_wait_seq = f.seq;
+    g_ping_done     = false;
+    g_ping_rssi     = 0;
+    g_ping_start_ms = millis();
+
+    if (!rtos_tx_enqueue(&item)) { g_ping_wait_seq = 0; return -1; }
+
+    // 轮询等 ACK（mesh_task 收到匹配 ACK 时置 g_ping_done）
+    uint32_t deadline = millis() + timeout_ms;
+    while (!g_ping_done && (int32_t)(millis() - deadline) < 0) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    if (!g_ping_done) { g_ping_wait_seq = 0; return -1; }   // 超时
+
+    int32_t rtt = (int32_t)(millis() - g_ping_start_ms);
+    g_ping_wait_seq = 0;
+    if (rssi_out) *rssi_out = g_ping_rssi;
+    return rtt;
+}
+
+// 发控制帧（NACK / CFG 等）：type 自选，payload 走加密
+bool mesh_send_ctrl(uint8_t type, uint8_t dst_id, uint8_t qos, bool ack_req,
+                    const uint8_t* payload, size_t len) {
+    if (len > FRAME_MAX_PLAIN) return false;
+
+    frame_t f = {};
+    f.type       = type;
+    f.qos        = qos;
+    f.ack_req    = ack_req;
+    f.frag       = false;
+    f.proto      = PROTO_CUSTOM;
+    f.src_id     = g_my_node_id;
+    f.dst_id     = dst_id;
+    f.relay_id   = 0;
+    f.seq        = g_seq++;
+    f.ttl        = g_my_ttl;
+    f.orig_sysid = 0;
+    f.payload    = payload;
+    f.payload_len = len;
+
+    if (dst_id != 0) {
+        uint8_t nh = route_next_hop(dst_id);
+        if (nh == 0) {
+            f.dst_id = 0;            // 路径未知回退广播
+        } else if (nh != dst_id) {
+            f.relay_id = nh;         // 经中继
+        }
+    }
+
+    uint8_t seal_buf[FRAME_MAX_PAYLOAD];
+    crypto_seal_frame(&f, seal_buf, sizeof(seal_buf));
+
+    uint8_t buf[FRAME_MTU];
+    size_t n = frame_encode(&f, buf, sizeof(buf));
+    if (n == 0) return false;
+
+    queue_item_t item = {};
+    memcpy(item.data, buf, n);
+    item.len = (uint16_t)n;
+    item.qos = qos;
+    item.ack_req = ack_req ? 1 : 0;
+    return rtos_tx_enqueue(&item);
+}
+
 bool mesh_send_beacon() {
     frame_t f = {};
     f.type       = FRAME_BEACON;
@@ -199,7 +309,11 @@ static void mesh_task_func(void* arg) {
     (void)arg;
     queue_item_t item;
     for (;;) {
-        if (xQueueReceive(q_rf_rx, &item, portMAX_DELAY) != pdTRUE) continue;
+        // 带超时收帧：超时也跑 frag_tick（缺件 NACK 检查，~100ms 粒度）
+        if (xQueueReceive(q_rf_rx, &item, pdMS_TO_TICKS(100)) != pdTRUE) {
+            frag_tick();
+            continue;
+        }
 
         frame_t f;
         if (!frame_decode(item.data, item.len, &f)) {
@@ -209,9 +323,13 @@ static void mesh_task_func(void* arg) {
         g_rx++;
         g_last_rx_ms = millis();
 
-        // ACK 帧：通知 mac
+        // ACK 帧：通知 mac + 匹配 ping 等待
         if (f.type == FRAME_ACK) {
             mac_on_ack_rx(f.src_id, f.seq);
+            if (g_ping_wait_seq != 0 && f.seq == g_ping_wait_seq) {
+                g_ping_done = true;
+                g_ping_rssi = item.rssi;
+            }
             continue;
         }
 
@@ -226,6 +344,12 @@ static void mesh_task_func(void* arg) {
             continue;
         }
 
+        // PING：回 ACK，不投递不转发（探测帧到此为止）
+        if (f.type == FRAME_PING) {
+            mac_send_ack(f.src_id, f.seq);
+            continue;
+        }
+
         // 数据帧且要 ACK：回 ACK
         if (f.type == FRAME_DATA && f.ack_req) {
             mac_send_ack(f.src_id, f.seq);
@@ -235,7 +359,8 @@ static void mesh_task_func(void* arg) {
         if (f.dst_id == 0) route_learn(f.src_id, f.relay_id);
 
         // 投递本机（dst 是自己或广播）；加密帧先解密，认证失败丢弃
-        if (f.type == FRAME_DATA && (f.dst_id == 0 || f.dst_id == g_my_node_id)) {
+        if ((f.type == FRAME_DATA || f.type == FRAME_NACK || f.type == FRAME_CFG) &&
+            (f.dst_id == 0 || f.dst_id == g_my_node_id)) {
             frame_t rx = f;
             uint8_t plain[FRAME_MTU];
             if (f.enc) {

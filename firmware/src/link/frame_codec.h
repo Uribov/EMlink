@@ -24,6 +24,7 @@ enum : uint8_t {
     FRAME_BEACON = 3,
     FRAME_PING   = 4,
     FRAME_ROUTE  = 5,   // 预留
+    FRAME_CFG    = 6,   // 远程参数同步（GCS 广播 key=value）
 };
 
 // 协议类型（flags[3:2]，payload 里装的是什么协议）

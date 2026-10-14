@@ -54,6 +54,7 @@
 - `nvs_cfg_save(cfg_t*)`：写全部
 - `nvs_cfg_factory(cfg_t*)`：填默认值
 - `nvs_cfg_set/get(key, val)`：单项字符串读写（CLI 的 `set/get` 用），内部做字符串↔数值映射（如 "air"↔ROLE_AIR）
+- `nvs_cfg_apply_kv(data, len)`：应用 "key=value"（FRAME_CFG 远程参数同步用）；白名单拒 `role`
 
 ### 调用时机
 - 上电：main.cpp `nvs_cfg_load` 读一次，分发给各模块（radio_init/mac_set_params 等）

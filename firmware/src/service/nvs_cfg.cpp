@@ -202,3 +202,25 @@ bool nvs_cfg_get(const char* key, char* val, size_t len) {
     p.end();
     return ok;
 }
+
+// 应用 "key=value"（远程参数同步）；白名单拒 role
+bool nvs_cfg_apply_kv(const uint8_t* data, size_t len) {
+    if (!data || len == 0 || len > 63) return false;
+
+    // 拷到可写缓冲，找 '=' 切 key/value
+    char buf[64];
+    memcpy(buf, data, len);
+    buf[len] = '\0';
+
+    char* eq = strchr(buf, '=');
+    if (!eq) return false;
+    *eq = '\0';
+    const char* key = buf;
+    const char* val = eq + 1;
+    if (key[0] == '\0' || val[0] == '\0') return false;
+
+    // 白名单：role 不允许远程改（误操作直接断链）
+    if (strcmp(key, "role") == 0) return false;
+
+    return nvs_cfg_set(key, val);
+}

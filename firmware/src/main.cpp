@@ -35,11 +35,24 @@ static void on_frag_done(const uint8_t* full, size_t len) {
 
 static void on_mesh_rx(const frame_t* f, float rssi, float snr) {
     (void)rssi; (void)snr;
+
+    // NACK：交给 mav_router 补发缺失分片
+    if (f->type == FRAME_NACK) {
+        mav_router_on_nack(f->payload, f->payload_len);
+        return;
+    }
+
+    // CFG：远程参数同步（GCS 广播 key=value）
+    if (f->type == FRAME_CFG) {
+        nvs_cfg_apply_kv(f->payload, f->payload_len);
+        return;
+    }
+
     if (f->orig_sysid != 0) addr_map_learn(f->orig_sysid, f->src_id);
     if (f->frag) {
         frag_hdr_t hdr;
         memcpy(&hdr, f->frag_hdr, 4);
-        frag_reassemble(f->orig_sysid, &hdr, f->payload, f->payload_len, on_frag_done);
+        frag_reassemble(f->src_id, f->orig_sysid, &hdr, f->payload, f->payload_len, on_frag_done);
     } else {
         mav_router_feed(f->payload, f->payload_len);
     }

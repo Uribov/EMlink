@@ -25,8 +25,17 @@ void mesh_set_rx_cb(mesh_rx_cb_t cb);
 bool mesh_send(uint8_t dst_id, uint8_t qos, bool ack_req,
                const uint8_t* payload, size_t len, uint8_t orig_sysid);
 
+// 发控制帧（FRAME_NACK / FRAME_CFG 等）：type 自选，无 MAVLink 载荷
+// payload 走加密；单播同 mesh_send 的 relay 逻辑
+bool mesh_send_ctrl(uint8_t type, uint8_t dst_id, uint8_t qos, bool ack_req,
+                    const uint8_t* payload, size_t len);
+
 // GCS 广播 BEACON（邻居据此评估链路质量，架构 §5）
 bool mesh_send_beacon();
+
+// ping 探测：发 FRAME_PING 帧测 RTT。返回 rtt_ms（<0 = 超时/失败）；
+// rssi_out（可空）输出对方信号。阻塞等待，最长 timeout_ms。
+int32_t mesh_ping(uint8_t dst_id, uint32_t timeout_ms, int16_t* rssi_out);
 
 // 统计
 uint32_t mesh_fwd_count();

@@ -60,6 +60,12 @@ LoRa mesh ──> on_mesh_rx ──> mav_router_feed ─────────
 ### 分片
 - MAVLink 消息 len > FRAME_MAX_PLAIN(175) → `frag_split` 拆片，每片一个 mesh 帧（frag=1，frag_hdr 填）
 - 每片 frame_encode 前 `crypto_seal_frame` 加密（加密后密文 179 正好塞满 payload 区）
+- 分片前把原始数据存进发送缓存（`g_tx_cache`，mutex 保护），供 NACK 补发
+
+### 缺件 NACK 补发（mav_router_on_nack）
+- 收到 FRAME_NACK（payload `[sysid, frag_seq, 缺失位图]`）→ 匹配缓存（sysid + frag_seq 都对上）
+- 锁内复制到静态补发缓冲 `g_resend`（不在 mesh_task 栈上放大数组），锁外逐片补发缺失片
+- 缓存是"最近一组"：新分片覆盖旧的；NACK 到达时若已被覆盖则匹配不上，走 frag 2s 超时兜底
 
 ### mavlink_task（核1 优先级12）
 从 q_uart_rx / q_usb_rx 读字节流块，分别 feed；无 mesh 帧（mesh 帧走 main.cpp 的 on_mesh_rx 回调）

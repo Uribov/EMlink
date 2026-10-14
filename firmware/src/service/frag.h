@@ -17,6 +17,7 @@ struct frag_hdr_t {
 };
 
 #define FRAG_REASM_TIMEOUT_MS 2000
+#define FRAG_NACK_WAIT_MS     500    // 收第一片后 500ms 还没集齐 → 发 NACK 催缺件
 
 void frag_init();
 
@@ -27,8 +28,12 @@ size_t frag_split(const uint8_t* data, size_t len,
                   frag_hdr_t* hdr);
 
 // 接收侧：喂入一片，拼齐后回调整包；重组键 =(orig_sysid, frag_seq)，多机并发不串
-void frag_reassemble(uint8_t orig_sysid, const frag_hdr_t* hdr, const uint8_t* data, size_t len,
+// src_id = 发片源节点（缺件时回 NACK 用）
+void frag_reassemble(uint8_t src_id, uint8_t orig_sysid, const frag_hdr_t* hdr, const uint8_t* data, size_t len,
                      void (*done)(const uint8_t* full, size_t len));
+
+// 周期检查缺件（由 mesh_task 每 ~100ms 调）：超时未拼齐 → 发 NACK 催缺件
+void frag_tick();
 
 // 统计
 uint32_t frag_timeout_count();

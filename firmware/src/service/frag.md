@@ -13,8 +13,8 @@ MAVLink 大消息（>175B）拆成小片、对方拼回；缺件只补缺件。�
 ## 重组（接收侧）
 - 键 = `(orig_sysid, frag_seq)`，按 `frag_index` 存到重组缓冲
 - 全片到齐 → 拼接回调 `done(full, len)`
-- 缺件：回 NACK（携带缺失位图），发方**只补缺的那几片**，不重发全部
-- 2s 未拼齐 → 整组作废，计 `frag_timeout_count`
+- 缺件：收第一片后 500ms 还没拼齐 → 回 NACK（`[orig_sysid, frag_seq, 缺失位图]`），发方**只补缺的那几片**
+- 2s 未拼齐 → 整组作废，计 `frag_timeout_count`（NACK 补发也失败时的兜底）
 
 ## 片大小 175 的由来（加密预留）
 加密（crypto 模块）会给每片 payload 加 4B tag，故片大小从 179 降到 175（`FRAME_MAX_PLAIN`）：
@@ -42,12 +42,17 @@ MAVLink 大消息（>175B）拆成小片、对方拼回；缺件只补缺件。�
 ### 接收侧 frag_reassemble（键 =(orig_sysid, frag_seq)）
 - 重组槽 `reasm_slot_t`：4 并发（FRAG_CONCURRENT），每槽 8 片 × 175B
 - 槽匹配同时比 orig_sysid + frag_seq 两个字段（多机并发不串包）
+- 槽记录 `src_id`（发片源节点）+ `nack_sent`（防 NACK 风暴，只催一次）
 - 位图 got 判拼齐；拼齐回调 `done(full, len)`
 - 2s 超时懒清理（FRAG_REASM_TIMEOUT_MS），计 `frag_timeout_count`
 
-### 调用链
-- 发送：mav_router 的 route_msg 里 len>FRAME_MAX_PLAIN 时 frag_split + 逐片 crypto_seal_frame + frame_encode 投 q_mac_tx
-- 接收：main.cpp 的 on_mesh_rx 里 f.frag 时 `frag_reassemble(f.orig_sysid, ...)`，done 回调 mav_router_feed
+### 缺件 NACK（已实现）
+- `frag_tick()` 由 mesh_task 每 ~100ms 调（收帧超时也调）
+- 收第一片后 ≥ FRAG_NACK_WAIT_MS(500ms) 且未拼齐且没发过 NACK → 发 FRAME_NACK（`mesh_send_ctrl`）
+- NACK payload 3B：`[orig_sysid, frag_seq, 缺失位图]`；`nack_sent=true` 只催一次
+- 发送侧（mav_router）收到 NACK → 从发送缓存补发缺失片（见 mav_router.md）
 
-### 未实现（预留）
-- NACK 缺件补发（frag.h 无 NACK 接口，P3 先做重组，缺件补发后续加）
+### 调用链
+- 发送：mav_router 的 route_msg 里 len>FRAME_MAX_PLAIN 时 frag_split + 缓存原始数据 + 逐片 crypto_seal_frame + frame_encode 投 q_mac_tx
+- 接收：main.cpp 的 on_mesh_rx 里 f.frag 时 `frag_reassemble(f.src_id, f.orig_sysid, ...)`，done 回调 mav_router_feed
+- NACK：frag_tick（mesh_task）→ mesh_send_ctrl(FRAME_NACK) → 对端 on_mesh_rx → mav_router_on_nack 补发
