@@ -40,6 +40,7 @@ static mesh_rx_cb_t g_rx_cb = nullptr;
 
 // 统计
 static uint32_t g_fwd = 0, g_drop_ttl = 0, g_drop_dup = 0, g_drop_crc = 0, g_rx = 0;
+static uint32_t g_drop_auth = 0;
 static uint32_t g_last_rx_ms = 0;
 
 // ping 等待状态（mesh_ping 阻塞期间，mesh_task 收到匹配 ACK 时置位）
@@ -336,6 +337,7 @@ uint32_t mesh_fwd_count()      { return g_fwd; }
 uint32_t mesh_drop_ttl_count() { return g_drop_ttl; }
 uint32_t mesh_drop_dup_count() { return g_drop_dup; }
 uint32_t mesh_drop_crc_count() { return g_drop_crc; }
+uint32_t mesh_drop_auth_count() { return g_drop_auth; }
 uint32_t mesh_rx_count()       { return g_rx; }
 uint32_t mesh_last_rx_ms()     { return g_last_rx_ms; }
 uint32_t mesh_id_conflict_count() { return g_id_conflict; }
@@ -404,19 +406,25 @@ static void mesh_task_func(void* arg) {
         // 反向路径学习（广播帧：relay_id 即上一跳）
         if (f.dst_id == 0) route_learn(f.src_id, f.relay_id);
 
-        // 投递本机（dst 是自己或广播）；加密帧先解密，认证失败丢弃
+        // 投递本机（dst 是自己或广播）；加密帧先解密
+        // P1-8：认证/解密失败只影响本机投递，不影响转发——转发的是密文，中继不需要密钥
         if ((f.type == FRAME_DATA || f.type == FRAME_NACK || f.type == FRAME_CFG) &&
             (f.dst_id == 0 || f.dst_id == g_my_node_id)) {
             frame_t rx = f;
             uint8_t plain[FRAME_MTU];
+            bool deliver = true;
             if (f.enc) {
                 size_t plen = crypto_open_frame(&f, plain, sizeof(plain));
-                if (plen == 0) { g_drop_crc++; continue; }   // 认证失败：坏帧，丢弃不转发
-                rx.payload     = plain;
-                rx.payload_len = plen;
-                rx.enc         = false;
+                if (plen == 0) {
+                    g_drop_auth++;      // 认证失败：本机不投递（但仍按 TTL 转发）
+                    deliver = false;
+                } else {
+                    rx.payload     = plain;
+                    rx.payload_len = plen;
+                    rx.enc         = false;
+                }
             }
-            if (g_rx_cb) g_rx_cb(&rx, (float)item.rssi, (float)item.snr);
+            if (deliver && g_rx_cb) g_rx_cb(&rx, (float)item.rssi, (float)item.snr);
         }
 
         // 转发判定

@@ -125,6 +125,9 @@ void cli_handle_line(const char* line) {
         cli_print(line);
         snprintf(line, sizeof(line), "占空比: 超限放行=%u 次\r\n", (unsigned)duty_oversize_count());
         cli_print(line);
+        snprintf(line, sizeof(line), "认证失败: %u 帧（只影响本机投递，不影响转发）\r\n",
+                 (unsigned)mesh_drop_auth_count());
+        cli_print(line);
     } else if (strcmp(cmd, "stats") == 0) {
         stats_t s;
         stats_collect(&s);
