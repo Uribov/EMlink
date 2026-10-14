@@ -4,7 +4,7 @@
 插 USB 弹出的命令行，配置 / 状态 / 调试入口。
 
 ## 依赖
-- `usb_cdc.h`（CDC1 收发）、`nvs_cfg.h`、`crypto.h`、`ota.h`、`stats.h`、`mesh.h`、`route.h`、`radio.h`
+- `usb_cdc.h`（CDC1 收发）、`nvs_cfg.h`、`crypto.h`、`ota.h`、`stats.h`、`mesh.h`、`route.h`、`radio.h`、`duty.h`（status 报占空比超限计数）
 
 ## 命令表（对齐架构 §9）
 ```
@@ -51,7 +51,7 @@ help                  帮助
 | `save` | 发 `EV_CFG_CHANGED`（各模块重载） |
 | `reset` | `esp_restart()` |
 | `factory` | `nvs_cfg_factory()` + `nvs_cfg_save()` → 恢复出厂默认（P0-4） |
-| `status` | 三行：role / node_id+撞号冲突计数 / RF 就绪状态（P0-4 扩充） |
+| `status` | 四行：role / node_id+撞号冲突计数 / RF 就绪状态 / **占空比超限放行次数**（P1-2 扩充） |
 | `stats` | `stats_print` |
 | `crypto <32hex>|off` | 设密钥 / 关闭加密 / 空=看状态 |
 | `wifi [off]` | 开/关 WiFi 维护模式（ota 模块） |
@@ -61,7 +61,7 @@ help                  帮助
 | `help` | 帮助 |
 
 ### 依赖
-- `usb_cdc`（CDC1 收发）、`nvs_cfg`（读写）、`crypto`（密钥命令）、`ota`（wifi 命令）、`stats`（stats 命令）、`mesh`（ping/cfg 发帧）、`route`（scan 邻居表）、`radio`（scan 信号）
+- `usb_cdc`（CDC1 收发）、`nvs_cfg`（读写）、`crypto`（密钥命令）、`ota`（wifi 命令）、`stats`（stats 命令）、`mesh`（ping/cfg 发帧）、`route`（scan 邻居表）、`radio`（scan 信号）、`duty`（status 占空比计数，P1-2）
 
 ### 预留命令（架构 §9 里有、尚未实现）
 `mavlink monitor`（旁路观察）——待后续补

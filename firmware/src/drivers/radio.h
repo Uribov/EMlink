@@ -29,7 +29,8 @@ bool radio_init(float freq, float bw, uint8_t sf, uint8_t cr,
 bool radio_is_ready(void);
 
 // 阻塞发送；返回 0 成功，负值错误码
-int16_t radio_transmit(const uint8_t* data, size_t len, uint32_t timeout_ms);
+// 注：RadioLib 的 transmit 第三参是 addr 而非超时，本接口不带超时参数；发送超时由 RadioLib 内部按 5×ToA 自管
+int16_t radio_transmit(const uint8_t* data, size_t len);
 
 // 高优先发送（ACK/控制帧用；与 radio_transmit 同语义，但排在普通数据帧前面）
 // 注意：P0-2 起射频归 rf_task 单所有者——以上所有射频接口内部改为"请求队列 + 阻塞等结果"，
@@ -54,6 +55,9 @@ float radio_lastSnr();
 // 运行时切扩频因子（ADR 用）：standby -> setSpreadingFactor -> startReceive
 // 返回 true 成功；切参数时芯片必须不在收发状态（SX126x 硬要求）
 bool radio_set_sf(uint8_t sf);
+
+// 按当前实际调制参数（SF/BW/CR）算一帧 len_bytes 字节的空中时间（ms）；射频未就绪/参数未知返回 0
+uint32_t radio_airtime_ms(size_t len_bytes);
 
 // 复位射频芯片
 void radio_hardReset();

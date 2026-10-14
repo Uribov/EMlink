@@ -12,6 +12,7 @@
 #include "../service/crypto.h"
 #include "../service/ota.h"
 #include "../app/stats.h"
+#include "../link/duty.h"
 #include <string.h>
 
 static TaskHandle_t g_cli_task = nullptr;
@@ -117,6 +118,8 @@ void cli_handle_line(const char* line) {
         cli_print(line);
         snprintf(line, sizeof(line), "RF: %s\r\n",
                  radio_is_ready() ? "就绪" : "初始化失败（每 10s 重试，LED 红灯）");
+        cli_print(line);
+        snprintf(line, sizeof(line), "占空比: 超限放行=%u 次\r\n", (unsigned)duty_oversize_count());
         cli_print(line);
     } else if (strcmp(cmd, "stats") == 0) {
         stats_t s;

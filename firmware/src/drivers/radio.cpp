@@ -6,6 +6,7 @@
 #include "radio.h"
 #include "../rtos.h"
 #include "../service/watchdog.h"
+#include "airtime.h"
 
 #if defined(RADIO_SX126X)
 static SX1268* g_radio = nullptr;
@@ -22,6 +23,7 @@ static bool  g_suspended = false;   // OTA 维护模式：WiFi 与 LoRa 二选�
 // 当前调制参数（CAD 超时推导用；radio_init 设定、radio_set_sf 更新）
 static uint8_t g_cur_sf = LORA_DEF_SF;
 static float   g_cur_bw_khz = LORA_DEF_BW;
+static uint8_t g_cur_cr = LORA_DEF_CR;
 
 // 就绪状态 + 初始化参数（射频失败后 rf_task 每 10s 用这些参数自动重试）
 static volatile bool g_radio_ready = false;
@@ -85,6 +87,7 @@ bool radio_init(float freq, float bw, uint8_t sf, uint8_t cr,
     g_radio_ready = true;
     g_cur_sf = sf;
     g_cur_bw_khz = bw;
+    g_cur_cr = cr;
     return true;
 #else
     g_radio_ready = false;
@@ -241,9 +244,13 @@ static int16_t radio_call(uint8_t op, uint8_t sf, const uint8_t* data, size_t le
 
 // ---- 公开 API：委托给所有者（签名保持不变）----
 
-int16_t radio_transmit(const uint8_t* data, size_t len, uint32_t timeout_ms) {
-    (void)timeout_ms;
+int16_t radio_transmit(const uint8_t* data, size_t len) {
     return radio_call(ROP_TX, 0, data, len, false);
+}
+
+uint32_t radio_airtime_ms(size_t len_bytes) {
+    if (!g_radio_ready || g_cur_cr < 5) return 0;
+    return airtime_ms((uint32_t)len_bytes, g_cur_sf, g_cur_bw_khz, g_cur_cr);
 }
 
 // 高优先发送（ACK/控制帧用；与 radio_transmit 同语义，但排在普通数据帧前面）
@@ -287,6 +294,9 @@ static void radio_retry_tick() {
     if (st == RADIOLIB_ERR_NONE) {
         attachInterrupt(digitalPinToInterrupt(PIN_LORA_DIO1), radio_isr, RISING);
         g_radio_ready = true;
+        g_cur_sf = g_init_sf;
+        g_cur_bw_khz = g_init_bw;
+        g_cur_cr = g_init_cr;
         Serial.println("[radio] 初始化重试成功，射频已恢复");
     } else {
         Serial.printf("[radio] 初始化重试失败（%d），%dms 后再试\n", (int)st, RADIO_RETRY_MS);

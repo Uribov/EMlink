@@ -13,3 +13,6 @@ bool duty_reserve(uint32_t airtime_ms);
 
 // 更新上限
 void duty_set_max(uint32_t ms_per_sec);
+
+// 单帧超预算 → 放行并计数（例：SF10 的 179B 分片 ≈1.64s）；返回累计放行次数
+uint32_t duty_oversize_count(void);

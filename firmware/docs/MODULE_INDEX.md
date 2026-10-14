@@ -2,11 +2,12 @@
 
 > 总架构：`../../mesh_firmware_architecture.md`。本索引给大模型/开发者全局视图。
 
-## 1. 模块清单（21 个，按层）
+## 1. 模块清单（22 个，按层）
 
 | 层 | 模块 | 一句话职责 |
 |---|---|---|
 | drivers | radio | 射频收发/CAD/复位（抽象接口，SX126x 等按宏实现） |
+| drivers | airtime | LoRa 空中时间计算（Semtech 公式，纯逻辑，P1-2） |
 | drivers | uart_fc | 飞控 UART（DMA 环形缓冲） |
 | drivers | usb_cdc | 双 CDC：MAVLink + CLI |
 | drivers | power_detect | USB 插入检测 |
@@ -32,7 +33,7 @@
 
 ```
 app:     role ─┬─ nvs_cfg, uart_fc, usb_cdc, mesh, mav_router
-         cli ─┬─ usb_cdc, nvs_cfg, crypto, ota, stats, mesh, route, radio
+         cli ─┬─ usb_cdc, nvs_cfg, crypto, ota, stats, mesh, route, radio, duty
          stats ─┬─ (各模块计数), watchdog
          failsafe_policy ─┬─ power_detect, mav_router, nvs_cfg
 service: mav_router ─┬─ frag, addr_map, mesh, crypto
@@ -46,11 +47,14 @@ net:     mesh ─┬─ frame_codec, route, adr, crypto, frag
          route (无)
 link:    mac ─┬─ radio, frame_codec, duty, adr
          frame_codec (无，纯逻辑)
-         duty (无)
+         duty (无，纯逻辑；空中时间由调用方传入)
          adr ─┬─ radio, mesh, role
-drivers: radio ─┬─ RadioLib, pinmap
+drivers: radio ─┬─ RadioLib, pinmap, airtime
+         airtime (无，纯逻辑；仅被 radio 使用)
          uart_fc / usb_cdc / power_detect ─┬─ pinmap
 ```
+
+> 依赖只向下：drivers ← link ← net ← service ← app。`airtime` 放在 drivers 层是为了让 `radio`（drivers）能用它——若放 link 层会形成 drivers→link 的反向依赖。
 
 ## 3. 建议实现顺序（自底向上，对齐架构 §11）
 
@@ -63,6 +67,7 @@ drivers: radio ─┬─ RadioLib, pinmap
 | **P4** | failsafe_policy | 断链 3s 返航 |
 
 **扩展模块（不在 P0~P4 主线，见架构 §13）**：crypto / adr / ota 三个已全部实现（P4 后补做）。
+**后补模块**：airtime（P1-2 时新增，drivers 层纯逻辑工具）。
 
 ## 4. 给大模型的固定提示词模板
 
@@ -80,7 +85,7 @@ drivers: radio ─┬─ RadioLib, pinmap
 | 引脚/接口/RadioLib 配置 | §0 |
 | 任务/核/优先级/队列/事件 | §3（任务函数模块 static）+ `src/rtos.h`（参数/队列/事件） |
 | 帧格式/地址/去重/TTL/路由 | §4 |
-| MAC/信道接入 | §5 |
+| MAC/信道接入（含空中时间/ACK 超时/占空比） | §5 + `drivers/airtime.md` |
 | 分片重组 | §6 |
 | sysid 路由 | §7 |
 | QoS/故障安全 | §8 |

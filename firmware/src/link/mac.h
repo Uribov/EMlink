@@ -6,7 +6,10 @@
 #include <Arduino.h>
 
 // 默认参数（可被 NVS 覆盖）
+// ACK 超时下限（NVS 默认）；实际超时 = max(本值, ACK 帧空中时间 + MAC_ACK_GUARD_MS)
 #define MAC_ACK_TIMEOUT_MS   300
+// ACK 帧空中时间之外的余量：收方处理 + 排队 + 射频切换
+#define MAC_ACK_GUARD_MS     50
 #define MAC_MAX_RETRIES      3
 #define MAC_LBT_MAX_TRIES    3
 #define MAC_BACKOFF_MIN_MS   5

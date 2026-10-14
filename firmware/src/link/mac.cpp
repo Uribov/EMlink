@@ -11,6 +11,9 @@
 #include "../service/nvs_cfg.h"
 #include "../service/watchdog.h"
 
+// ACK 帧线上长度：仅帧头 + CRC（无 payload）
+#define MAC_ACK_FRAME_LEN (FRAME_HDR_LEN + FRAME_CRC_LEN)
+
 static TaskHandle_t g_mac_task = nullptr;
 static uint32_t g_ack_timeout_ms = MAC_ACK_TIMEOUT_MS;
 static uint8_t  g_retries = MAC_MAX_RETRIES;
@@ -52,8 +55,9 @@ static bool mac_lbt() {
 mac_result_t mac_send(const uint8_t* frame, size_t len, bool ack_req) {
     if (!frame || len == 0) return MAC_TX_ERR;
 
-    // 占空比限流（粗略 airtime：按 len 比例估算，200B@SF7/BW125≈60ms）
-    uint32_t airtime = 5 + (uint32_t)len * 300 / 1000;
+    // 占空比限流：空中时间按当前 SF/BW/CR 精确推导（P1-2）；未就绪时按满预算记账（最保守）
+    uint32_t airtime = radio_airtime_ms(len);
+    if (airtime == 0) airtime = DUTY_MAX_MS_PER_SEC;
     while (!duty_reserve(airtime)) {
         vTaskDelay(pdMS_TO_TICKS(10));
         watchdog_feed();   // 限流等待可能接近 1s，防 WDT 误触发
@@ -64,6 +68,11 @@ mac_result_t mac_send(const uint8_t* frame, size_t len, bool ack_req) {
     // 解析 seq（线上字节 offset 4~5 小端）
     uint16_t my_seq = (uint16_t)(frame[4] | (frame[5] << 8));
 
+    // ACK 超时按 ACK 帧自身空中时间推导（SF10 下 ACK 帧就要 330ms，写死 300ms 必然超时）
+    // NVS 配置值作为下限，只放大不缩小
+    uint32_t ack_to = radio_airtime_ms(MAC_ACK_FRAME_LEN) + MAC_ACK_GUARD_MS;
+    if (ack_to < g_ack_timeout_ms) ack_to = g_ack_timeout_ms;
+
     int attempts = ack_req ? (int)g_retries + 1 : 1;
     uint32_t backoff_ms = 100;   // 100 -> 300 -> 700
 
@@ -71,7 +80,7 @@ mac_result_t mac_send(const uint8_t* frame, size_t len, bool ack_req) {
     for (int i = 0; i < attempts; i++) {
         lbt_ok = mac_lbt();
 
-        int16_t st = radio_transmit(frame, len, 1000);
+        int16_t st = radio_transmit(frame, len);
         if (st != 0) return MAC_TX_ERR;
 
         if (!ack_req) break;      // 不需 ACK，发完即走
@@ -81,7 +90,7 @@ mac_result_t mac_send(const uint8_t* frame, size_t len, bool ack_req) {
         g_wait_seq = my_seq;
         g_ack_arrived = false;
         uint32_t start = millis();
-        while (!g_ack_arrived && (millis() - start < g_ack_timeout_ms)) {
+        while (!g_ack_arrived && (millis() - start < ack_to)) {
             vTaskDelay(pdMS_TO_TICKS(5));
             watchdog_feed();   // mac_send 只由 mac_task 调用，属已订阅任务；多次重传累计可能超过 WDT 超时
         }
