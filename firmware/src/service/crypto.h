@@ -37,7 +37,11 @@ void crypto_disable();
 uint8_t crypto_enc_epoch(void);
 
 // 收端重放检查：成功返回 true（并记账）；重放/过旧返回 false
-bool crypto_check_replay(uint8_t src_id, uint16_t seq);
+// epoch = 帧头 enc_epoch（被 AAD 绑定）：同源 epoch 变化 ⇒ 对方重启过 ⇒ 重置该源窗口
+bool crypto_check_replay(uint8_t src_id, uint16_t seq, uint8_t epoch);
 
 // 重放丢弃计数（诊断用）
 uint32_t crypto_replay_drop_count(void);
+
+// 因"对方重启（epoch 变化）"重置窗口的次数（诊断用）
+uint32_t crypto_replay_resync_count(void);

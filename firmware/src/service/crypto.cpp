@@ -129,10 +129,14 @@ size_t crypto_open_frame(const frame_t* f, uint8_t* out, size_t out_cap) {
 // ---- 重放窗（密文层第二道闸）----
 // 去重表只管 30s/256 窗口，重放窗是密文层的第二道闸：窗口外的密文重放在此被拦下。
 // 位图 64 位（bits[0] 低 32 + bits[1] 高 32），bit 0 = last_seq（最新），bit i = (last_seq - i)。
+// epoch = 帧头 enc_epoch：它被 AAD 绑定（无密钥者改不动，改了会认证失败），
+// 所以是"对方是否重启过"的可信信号——同源 epoch 变了 ⇒ 对方重启 ⇒ 重置该源窗口。
+// 残余风险：持有旧世代真实密文的人可注入一帧陈旧但合法的帧，触发一次窗口重置。
 #define CRYPTO_REPLAY_SRC_NUM  8
-typedef struct { uint8_t src_id; uint16_t last_seq; uint32_t bits[2]; bool in_use; } replay_slot_t;
+typedef struct { uint8_t src_id; uint16_t last_seq; uint32_t bits[2]; bool in_use; uint8_t epoch; } replay_slot_t;
 static replay_slot_t g_replay[CRYPTO_REPLAY_SRC_NUM];
 static uint32_t g_replay_drop = 0;
+static uint32_t g_replay_resync = 0;
 static portMUX_TYPE g_replay_mux = portMUX_INITIALIZER_UNLOCKED;
 
 // 位图整体左移 n 位：bit i -> bit i+n，超界丢弃；n>=64 全清
@@ -163,15 +167,17 @@ static replay_slot_t* replay_slot(uint8_t src_id, uint16_t seq) {
     return nullptr;
 }
 
-bool crypto_check_replay(uint8_t src_id, uint16_t seq) {
+bool crypto_check_replay(uint8_t src_id, uint16_t seq, uint8_t epoch) {
     portENTER_CRITICAL(&g_replay_mux);
     replay_slot_t* s = replay_slot(src_id, seq);
     if (!s) { portEXIT_CRITICAL(&g_replay_mux); return false; }
 
-    if (!s->in_use) {
-        // 全新源：无从判断重放，直接记账
+    if (!s->in_use || s->epoch != epoch) {
+        // 全新源，或对方重启过（epoch 变）→ 窗口重开，按"本世代第一帧"记账
+        if (s->in_use) g_replay_resync++;      // 仅"重启重同步"计数，新源不计
         s->in_use   = true;
         s->src_id   = src_id;
+        s->epoch    = epoch;
         s->last_seq = seq;
         s->bits[0]  = 1u;            // 最低位置 1，标记该 seq 已见
         s->bits[1]  = 0;
@@ -220,6 +226,8 @@ bool crypto_check_replay(uint8_t src_id, uint16_t seq) {
 }
 
 uint32_t crypto_replay_drop_count() { return g_replay_drop; }
+
+uint32_t crypto_replay_resync_count() { return g_replay_resync; }
 
 // ---- 密钥管理（CLI / 网页用）----
 static int hexval(char c) {
