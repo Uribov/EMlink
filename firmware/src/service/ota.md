@@ -45,13 +45,13 @@
 ## 当前实现架构（已实现，供子 agent 分析）
 
 ### static 变量
-- `g_server`：`WebServer*`（端口 80）
+- `g_server`：`WebServer*`（端口 80），**由 ota_task 唯一持有/删除**
 - `g_ota_task`：ota_task 句柄（core1，优先级 6，栈 8KB）
-- `g_active`：维护模式标志
+- `g_active`：维护模式标志（`volatile`，ota_stop 只置 false）
 - `g_node_id`：SSID 用的节点号（ota_start 时从 NVS 读）
 
 ### 任务
-- `ota_task`（core1 prio6）：循环 `g_server->handleClient()`，10ms 一次
+- `ota_task`（core1 prio6）：`while (g_active)` 循环 `g_server->handleClient()`；g_active 变 false 后**自行清理**（停/删 g_server、关 WiFi、radio_resume）再 `vTaskDelete(nullptr)` 删自己
 - 跑 core1 而非 core0：WiFi 栈占 core0，射频也 core0，WebServer 放 core1 不抢
 
 ### 路由表（WebServer）
@@ -74,8 +74,8 @@
 - 靠 otadata 自动切新分区；写坏可回滚
 
 ### 维护模式进出
-- 进：`radio_suspend()` → `WiFi.mode(WIFI_AP)` → `softAP(ssid[, pass])` → `softAPConfig(192.168.4.1)` → `WebServer` 起路由 → 起 ota_task
-- 出：删任务 → 停/删 WebServer → `WiFi.mode(WIFI_OFF)` → `radio_resume()`
+- 进（`ota_start`）：`radio_suspend()` → `WiFi.mode(WIFI_AP)` → `softAP(ssid[, pass])` → `softAPConfig(192.168.4.1)` → `WebServer` 起路由 → 起 ota_task
+- 出（`ota_stop`）：**只置 `g_active=false`**，不直接删任务/服务；ota_task 循环检测到后自行清理并 `vTaskDelete(nullptr)` 删自己。原因：`handle_exit` 在 ota_task 上下文里跑，直接 `vTaskDelete(g_ota_task)` 会删自己导致后续 `radio_resume()` 永不执行 + 内存泄漏
 
 ### 关键实现细节
 1. **发送响应用手写 HTTP 头 + `client().write`**：内嵌 HTML 用 PROGMEM，直接 `send()` 传 PROGMEM 指针会乱码，故 `ws_send_p` 逐字节 `pgm_read_byte` 写出。

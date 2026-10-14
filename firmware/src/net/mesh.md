@@ -34,9 +34,14 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 
 ### static 变量
 - `g_dedup[16]`：去重表（每源 last_seq + 256bit 位图 + last_seen）
-- `g_my_node_id` / `g_my_ttl` / `g_seq`：本机地址 / 默认 TTL / 发送序号
+- `g_my_node_id` / `g_my_ttl`：本机地址 / 默认 TTL
+- `g_seq` + `g_seq_mux`：发送序号 + portMUX 锁（**全系统唯一 seq 源**，见下）
 - `g_rx_cb`：收包回调（main.cpp 设，接 mav_router / frag / addr_map）
 - 统计：`g_fwd` / `g_drop_ttl` / `g_drop_dup` / `g_drop_crc` / `g_rx` / `g_last_rx_ms`
+
+### 序号分配（mesh_next_seq，跨核原子）
+- `mesh_next_seq()` 用 portMUX 保护 `g_seq++`，是**全系统唯一 seq 源**
+- 普通帧/分片帧/控制帧/beacon/ping 都从它取 seq，**禁止任何模块自建 seq 计数器**（多计数器会导致同一节点 seq 重叠 → 去重误判丢帧）
 
 ### mesh_task 收帧流程（按序）
 1. `frame_decode`（CRC 失败 → drop_crc）
@@ -64,3 +69,4 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 - `mesh_send_ctrl(type,dst,qos,ack,payload,len)`：发控制帧（FRAME_NACK/FRAME_CFG），同样走加密 + relay 逻辑
 - `mesh_send_beacon()`：FRAME_BEACON，空 payload，ttl=1（只一跳不转发），proto=CUSTOM（不加密）
 - `mesh_ping(dst,timeout,rssi_out)`：发 FRAME_PING 等 ACK 测 RTT，阻塞轮询 `g_ping_done`（mesh_task 收到匹配 ACK 时置位）
+- 四个发送函数 seq 都走 `mesh_next_seq()`（不直接碰 `g_seq`）

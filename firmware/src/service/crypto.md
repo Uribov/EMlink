@@ -44,7 +44,8 @@
 
 ### static 变量
 - `g_key[16]`：运行时密钥缓存（init 时从 NVS 读入）
-- `g_enabled`：是否启用（密钥非全 0）
+- `g_enabled`：是否启用（密钥非全 0，`volatile`）
+- `g_key_mux`：portMUX 锁，保护 `g_key`（跨核：core0 加解密 + core1 设密钥）
 
 ### 数据流
 ```
@@ -60,6 +61,7 @@
 4. **加密失败语义**：未启用 / 空 payload / 明文超 175 → 返回 false，调用方**按明文原样处理**（不丢帧）。密钥错误只发生在解密侧（认证失败 → 丢弃）。
 5. **密钥管理**：`crypto_set_key_hex`（32 hex → 16B，写 NVS 立即生效）、`crypto_disable`（清 0 写 NVS）。`crypto_init` 在 main.cpp 组网前调用，收发共用同一开关。
 6. **tag 常量来源**：`FRAME_TAG_LEN=4` 定义在 `frame_codec.h`（帧格式层），crypto/frag 共用，避免魔数散落。
+7. **跨核锁**：seal/open 先 portMUX 拷 `g_key` 到局部再 setkey（锁只护 16B 拷贝，不护整个加解密，避免拖慢）；设密钥/关闭时 portMUX 写 `g_key`。
 
 ### 与 frame_codec 的分工
 - frame_codec 只负责 flags **bit0（FLAG_ENC）** 的编解码 + `frame_t.enc` 字段，**不做加解密**

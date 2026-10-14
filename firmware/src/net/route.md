@@ -28,6 +28,7 @@
 
 ### 数据结构
 - `path_t`：{src_id, via（下一跳）, rssi, seen_ms}，固定 16 槽（ROUTE_MAX_NEIGHBORS）
+- `g_route_mux`：portMUX 锁，保护 `g_paths`（跨核：core0 学习 + core0/1 查下一跳）
 
 ### 接口语义
 - `route_learn(src_id, via_neighbor)`：via=0 表示 src 直连（内部存 next=src 自己）；via≠0 存 next=via

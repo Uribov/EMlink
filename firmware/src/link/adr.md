@@ -45,6 +45,7 @@
 - `g_has_beacon`：是否已对齐到周期起点
 - `g_epoch_ms`：本周期起点时刻（对齐后有效）
 - `g_last_beacon_ms`：GCS 上次发 BEACON 时刻
+- 以上全部 `volatile`：跨核（mac_task core0 写 + mesh_task core0 写 + core1 读 `adr_current_sf`）
 
 ### 状态机
 ```

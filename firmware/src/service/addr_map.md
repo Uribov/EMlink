@@ -27,6 +27,7 @@
 
 ### 数据结构
 - `addr_entry_t`：{sysid, node_id, last_seen_ms}，固定 32 槽（ADDR_MAP_MAX）
+- `g_addr_mux`：portMUX 锁，保护 `g_map`（跨核：core0 学习 + core1 导出）
 
 ### 接口
 - `addr_map_learn(sysid, node_id)`：从 HEARTBEAT 学（mesh_rx_cb 里调用）

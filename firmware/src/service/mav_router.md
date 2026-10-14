@@ -41,13 +41,15 @@ MAVLink 的"翻译搬运工"——把字节流切成一条条消息，看消息�
 
 ### 数据流（三个来源）
 ```
-飞控 UART ──> q_uart_rx ──> mavlink_task ──> feed_uart ──┐
-QGC  USB  ──> q_usb_rx ──> mavlink_task ──> feed_usb ──┤─> route_msg（路由决策）
-LoRa mesh ──> on_mesh_rx ──> mav_router_feed ───────────┘
+飞控 UART ──> q_uart_rx ──> mavlink_task ──> feed_uart（独立状态机 g_rx_uart）──┐
+QGC  USB  ──> q_usb_rx ──> mavlink_task ──> feed_usb（独立状态机 g_rx_usb）──┤─> route_msg
+LoRa mesh ──> on_mesh_rx ──> mav_router_feed（完整消息，不走状态机）────────┘
 ```
 
 ### 切帧（状态机，无 mavlink_parse_char）
-- 找 `0xFD` → 读 LEN → 收齐 `10+LEN+2` → 验 CRC → 交 route_msg
+- **uart / usb 各独立一套 `rx_state_t`**（`g_rx_uart`/`g_rx_usb`），禁止共用一个字节流缓冲——共用会跨核串包
+- **mesh 来源是完整 MAVLink 消息**（mesh 每帧 payload 就是一条完整消息，分片重组后也是），`mav_router_feed` 直接验 CRC 后 route_msg，**不走状态机**
+- 状态机逻辑抽成通用 `feed_bytes(rx_state_t*, data, len, source)`：找 `0xFD` → 读 LEN → 收齐 `10+LEN+2` → 验 CRC → 交 route_msg
 - 手动状态机 + 手动 CRC（用 mavlink 库的 `crc_calculate`/`crc_accumulate` + `mavlink_get_msg_entry` 拿 crc_extra）
 - 帧头字段偏移：STX[0] LEN[1] incompat[2] compat[3] SEQ[4] SYSID[5] COMPID[6] MSGID[7-9]
 
@@ -60,12 +62,14 @@ LoRa mesh ──> on_mesh_rx ──> mav_router_feed ─────────
 ### 分片
 - MAVLink 消息 len > FRAME_MAX_PLAIN(175) → `frag_split` 拆片，每片一个 mesh 帧（frag=1，frag_hdr 填）
 - 每片 frame_encode 前 `crypto_seal_frame` 加密（加密后密文 179 正好塞满 payload 区）
-- 分片前把原始数据存进发送缓存（`g_tx_cache`，mutex 保护），供 NACK 补发
+- 分片前把原始数据存进发送缓存（`g_tx_cache`，FreeRTOS mutex 保护，跨核：core1 缓存 + core0 补发）
+- 分片帧 seq 走 `mesh_next_seq()`（**不再用独立的 `g_mesh_seq`**，多计数器会 seq 重叠丢帧）
 
 ### 缺件 NACK 补发（mav_router_on_nack）
 - 收到 FRAME_NACK（payload `[sysid, frag_seq, 缺失位图]`）→ 匹配缓存（sysid + frag_seq 都对上）
 - 锁内复制到静态补发缓冲 `g_resend`（不在 mesh_task 栈上放大数组），锁外逐片补发缺失片
 - 缓存是"最近一组"：新分片覆盖旧的；NACK 到达时若已被覆盖则匹配不上，走 frag 2s 超时兜底
+- `g_last_hb_ms`（心跳时间戳）跨核写（core0 mesh 来源 + core1 uart/usb 来源），声明 `volatile`
 
 ### mavlink_task（核1 优先级12）
 从 q_uart_rx / q_usb_rx 读字节流块，分别 feed；无 mesh 帧（mesh 帧走 main.cpp 的 on_mesh_rx 回调）
