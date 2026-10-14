@@ -59,6 +59,11 @@ uint32_t mesh_last_rx_ms();   // 最后收帧时间 ms（失联判定用）
 // 撞号冲突计数（收到"自称本机 node_id"且 seq 不在本机已发序号里的陌生帧）
 uint32_t mesh_id_conflict_count();
 
+// 协议版本不一致的信标计数（T-2）
+uint32_t mesh_proto_mismatch_count(void);
+// 最近一次收到的对端协议版本（0 = 未收到/老版本无此字段）
+uint8_t  mesh_peer_proto_version(void);
+
 // 本机无线节点号（撞号检测要拿它排除"自己中继回来的帧"）
 uint8_t mesh_my_id(void);
 

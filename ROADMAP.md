@@ -13,7 +13,7 @@
 ## 2. 进行中（本批，2026-10-15 起）
 
 - [x] `tools/check_deps.py`：**应用-中间-驱动**三层依赖体检（只报告不阻塞）—— 实测：硬规则违规 2 处（`link/adr.cpp`、`service/ota.cpp` 反向依赖 `app/`）、越层动作违规 0、待收敛 6 处（`service/mav_router.cpp`）
-- [ ] 协议版本随 BEACON 广播（拦"A-5 那种改了帧头两端悄悄不兼容"）
+- [x] 协议版本随 BEACON 广播（拦"A-5 那种改了帧头两端悄悄不兼容"）—— 提交见 FIX_LOG；`EM_PROTO_VERSION=2`，`ver` 命令 + `status` 协议行
 - [ ] 计数按三层归集 + `status` 分层显示
 - [ ] 分级日志（按层 tag）+ `dmesg` + ERROR/WARN → MAVLink STATUSTEXT
 - [ ] 中间层不再反向依赖 `app/`（role 枚举下移）

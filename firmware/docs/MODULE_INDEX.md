@@ -22,6 +22,7 @@
 | service | addr_map | sysid↔node 对照表 |
 | service | nvs_cfg | 配置持久化 |
 | service | watchdog | 看门狗 + 射频自救 |
+| service | version | 固件版本 / 协议版本宣告（T-2；属**基础支撑**横切件，不算独立模块——无 .md，说明见 `version.h`/`version.cpp` 与总架构 §5） |
 | service | ratelimit | 按 QoS 令牌桶流量整形（控制流保底份额，P1-10） |
 | service | crypto | 帧载荷加密（AES-128-CCM，§13.1 已实现） |
 | service | ota | OTA 固件升级 + WiFi Web 管理（§13.2 已实现） |

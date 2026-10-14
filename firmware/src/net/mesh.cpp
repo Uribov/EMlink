@@ -11,6 +11,7 @@
 #include "../service/crypto.h"
 #include "../service/frag.h"
 #include "../service/watchdog.h"
+#include "../service/version.h"
 
 // ---- 去重表 ----
 #define MESH_MAX_SRC 16
@@ -44,6 +45,10 @@ static uint32_t g_fwd = 0, g_drop_ttl = 0, g_drop_dup = 0, g_drop_crc = 0, g_rx 
 static uint32_t g_dedup_evict = 0;
 static uint32_t g_drop_auth = 0;
 static uint32_t g_last_rx_ms = 0;
+
+// T-2：协议版本宣告诊断（BEACON 携带 1 字节协议版本）
+static uint32_t g_proto_mismatch = 0;   // 版本不一致的信标计数
+static uint8_t  g_peer_proto = 0;       // 最近一次收到的对端协议版本（0 = 未收到/老版本无此字段）
 
 // ping 等待状态（mesh_ping 阻塞期间，mesh_task 收到匹配 ACK 时置位）
 static volatile uint16_t g_ping_wait_seq = 0;   // 0 = 无等待
@@ -329,8 +334,11 @@ bool mesh_send_beacon() {
     f.seq        = mesh_next_seq();
     f.ttl        = MESH_BEACON_TTL;   // 允许 1 跳转发（P1-3）
     f.orig_sysid = 0;
-    f.payload    = nullptr;
-    f.payload_len = 0;
+    // T-2：BEACON payload = 1 字节协议版本（不加密）。
+    // ver 必须活到 frame_encode 拷贝完成（payload 指针未被提前释放）。
+    uint8_t ver = EM_PROTO_VERSION;
+    f.payload    = &ver;
+    f.payload_len = 1;
 
     uint8_t buf[FRAME_MTU];
     size_t n = frame_encode(&f, buf, sizeof(buf));
@@ -353,6 +361,10 @@ uint32_t mesh_drop_auth_count() { return g_drop_auth; }
 uint32_t mesh_rx_count()       { return g_rx; }
 uint32_t mesh_last_rx_ms()     { return g_last_rx_ms; }
 uint32_t mesh_id_conflict_count() { return g_id_conflict; }
+
+// T-2：协议版本宣告诊断
+uint32_t mesh_proto_mismatch_count(void) { return g_proto_mismatch; }
+uint8_t  mesh_peer_proto_version(void)   { return g_peer_proto; }
 
 uint8_t mesh_my_id(void) { return g_my_node_id; }
 
@@ -401,6 +413,20 @@ static void mesh_task_func(void* arg) {
             route_learn(f.src_id, f.relay_id);
             route_update_rssi(f.src_id, item.rssi);
             adr_on_beacon(f.src_id, f.relay_id);   // P1-3：多跳信标只算可见性，不对齐
+
+            // T-2：协议版本宣告比对（只告警不拒绝）。
+            // payload_len>=1 → 对端版本；==0 → 老固件/无版本字段，记 0。
+            uint8_t peer_ver = (f.payload_len >= 1) ? f.payload[0] : 0;
+            g_peer_proto = peer_ver;
+            if (peer_ver != 0 && peer_ver != EM_PROTO_VERSION) {
+                g_proto_mismatch++;
+                static uint8_t warned_ver = 0;   // 每个对端版本只告警一次，避免每周期刷屏
+                if (warned_ver != peer_ver) {
+                    warned_ver = peer_ver;
+                    Serial.printf("[mesh] 协议版本不一致：本机 v%u，对端 v%u（帧格式/封装不兼容，需全网同版本固件）\n",
+                                  (unsigned)EM_PROTO_VERSION, (unsigned)peer_ver);
+                }
+            }
             // 不 continue：让信标继续走到下面的转发判定（dst=0、ttl>0 → 中继转发一次）
         } else if (f.type == FRAME_PING) {
             // PING：回 ACK，不投递不转发（探测帧到此为止）

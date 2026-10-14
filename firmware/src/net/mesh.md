@@ -83,6 +83,6 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 ### mesh_send / mesh_send_ctrl / mesh_send_beacon / mesh_ping
 - `mesh_send(dst,qos,ack,payload,len,orig_sysid)`：发 FRAME_DATA，单播查 route_next_hop 定 relay_id，未知回退广播；**len 上限 175**，frame_encode 前 `crypto_seal_frame` 加密
 - `mesh_send_ctrl(type,dst,qos,ack,payload,len)`：发控制帧（FRAME_NACK/FRAME_CFG），同样走加密 + relay 逻辑
-- `mesh_send_beacon()`：FRAME_BEACON，空 payload，`ttl = MESH_BEACON_TTL`(=2：GCS 发 + 最多 1 跳转发，P1-3)，proto=CUSTOM（不加密）
+- `mesh_send_beacon()`：FRAME_BEACON，payload = **1 字节协议版本**（`EM_PROTO_VERSION`，T-2），`ttl = MESH_BEACON_TTL`(=2：GCS 发 + 最多 1 跳转发，P1-3)，proto=CUSTOM（不加密）
 - `mesh_ping(dst,timeout,rssi_out)`：发 FRAME_PING 等 ACK 测 RTT，阻塞轮询 `g_ping_done`（mesh_task 收到匹配 ACK 时置位）
 - 四个发送函数 seq 都走 `mesh_next_seq()`（不直接碰 `g_seq`）

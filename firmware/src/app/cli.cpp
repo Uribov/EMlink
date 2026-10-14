@@ -15,6 +15,7 @@
 #include "../service/mav_router.h"
 #include "../service/frag.h"
 #include "../service/addr_map.h"
+#include "../service/version.h"
 #include "../app/stats.h"
 #include "../link/duty.h"
 #include "../link/adr.h"
@@ -48,6 +49,7 @@ void cli_help() {
               "  scan                 扫邻居 + 信号\r\n"
               "  ping <node_id>       测通断/RTT\r\n"
               "  cfg <键> <值>        广播参数给全网（GCS）\r\n"
+              "  ver                  看固件/协议版本\r\n"
               "  help                 帮助\r\n");
 }
 
@@ -157,6 +159,13 @@ void cli_handle_line(const char* line) {
                  (unsigned)adr_desync_count(), (unsigned)adr_multi_anchor_count(),
                  (unsigned)adr_current_sf());
         cli_print(line);
+        char peer_ver[16];
+        uint8_t pv = mesh_peer_proto_version();
+        if (pv == 0) snprintf(peer_ver, sizeof(peer_ver), "未知");
+        else         snprintf(peer_ver, sizeof(peer_ver), "v%u", (unsigned)pv);
+        snprintf(line, sizeof(line), "协议: 本机=%s 对端=%s 不一致=%u 次\r\n",
+                 version_proto_str(), peer_ver, (unsigned)mesh_proto_mismatch_count());
+        cli_print(line);
         snprintf(line, sizeof(line), "丢包: 收包队列=%u 射频请求=%u 发送队列=%u UART=%u USB=%u\r\n",
                  (unsigned)radio_rx_drop_count(), (unsigned)radio_req_drop_count(),
                  (unsigned)rtos_tx_drop_count(), (unsigned)uart_fc_drop_count(),
@@ -241,6 +250,11 @@ void cli_handle_line(const char* line) {
         } else {
             cli_print("用法：cfg <键> <值>（如 cfg power 15）；role 不允许远程改\r\n");
         }
+    } else if (strcmp(cmd, "ver") == 0) {
+        char line[64];
+        snprintf(line, sizeof(line), "EMlink 固件 %s · 协议 %s\r\n",
+                 version_fw_str(), version_proto_str());
+        cli_print(line);
     } else {
         cli_print("未知命令，输入 help\r\n");
     }
