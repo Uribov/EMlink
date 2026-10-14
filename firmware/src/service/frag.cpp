@@ -25,11 +25,13 @@ struct reasm_slot_t {
 static reasm_slot_t g_reasm[FRAG_CONCURRENT];
 static uint8_t g_frag_seq = 0;
 static uint32_t g_timeout = 0;
+static uint32_t g_slot_evict = 0;   // 并发重组槽耗尽、被迫淘汰旧槽的次数
 
 void frag_init() {
     memset(g_reasm, 0, sizeof(g_reasm));
     g_frag_seq = 0;
     g_timeout = 0;
+    g_slot_evict = 0;
 }
 
 size_t frag_split(const uint8_t* data, size_t len,
@@ -76,13 +78,20 @@ void frag_reassemble(uint8_t src_id, uint8_t orig_sysid, const frag_hdr_t* hdr, 
 
     reasm_slot_t* s = nullptr;
     for (int i = 0; i < FRAG_CONCURRENT; i++) {
-        if (g_reasm[i].in_use && g_reasm[i].orig_sysid == orig_sysid && g_reasm[i].frag_seq == hdr->frag_seq) { s = &g_reasm[i]; break; }
+        if (g_reasm[i].in_use && g_reasm[i].src_id == src_id &&
+            g_reasm[i].orig_sysid == orig_sysid && g_reasm[i].frag_seq == hdr->frag_seq) { s = &g_reasm[i]; break; }
     }
     if (!s) {
         for (int i = 0; i < FRAG_CONCURRENT; i++) {
             if (!g_reasm[i].in_use) { s = &g_reasm[i]; break; }
         }
-        if (!s) return;   // 槽满
+        if (!s) {
+            // 槽满：淘汰开始最早的那个（最可能已无望拼齐），并计数——原实现直接 return，静默丢片
+            for (int i = 0; i < FRAG_CONCURRENT; i++) {
+                if (!s || (int32_t)(g_reasm[i].start_ms - s->start_ms) < 0) s = &g_reasm[i];
+            }
+            g_slot_evict++;
+        }
         memset(s, 0, sizeof(*s));
         s->in_use = true;
         s->src_id = src_id;
@@ -131,3 +140,4 @@ void frag_tick() {
 }
 
 uint32_t frag_timeout_count() { return g_timeout; }
+uint32_t frag_slot_evict_count() { return g_slot_evict; }

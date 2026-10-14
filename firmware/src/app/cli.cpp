@@ -12,6 +12,7 @@
 #include "../service/crypto.h"
 #include "../service/ota.h"
 #include "../service/mav_router.h"
+#include "../service/frag.h"
 #include "../service/addr_map.h"
 #include "../app/stats.h"
 #include "../link/duty.h"
@@ -129,10 +130,11 @@ void cli_handle_line(const char* line) {
         snprintf(line, sizeof(line), "认证失败: %u 帧（只影响本机投递，不影响转发）\r\n",
                  (unsigned)mesh_drop_auth_count());
         cli_print(line);
-        snprintf(line, sizeof(line), "表容量: 去重淘汰=%u 路由过期=%u/%u 地址过期=%u/%u\r\n",
+        snprintf(line, sizeof(line), "表容量: 去重淘汰=%u 路由过期=%u/%u 地址过期=%u/%u 分片槽淘汰=%u\r\n",
                  (unsigned)mesh_dedup_evict_count(),
                  (unsigned)route_expired_count(), (unsigned)route_evict_count(),
-                 (unsigned)addr_map_expired_count(), (unsigned)addr_map_evict_count());
+                 (unsigned)addr_map_expired_count(), (unsigned)addr_map_evict_count(),
+                 (unsigned)frag_slot_evict_count());
         cli_print(line);
     } else if (strcmp(cmd, "stats") == 0) {
         stats_t s;
