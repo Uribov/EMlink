@@ -45,6 +45,10 @@ bool nvs_cfg_value_ok(const char* key, const char* val);
 // 从芯片 MAC 派生 1..254 的节点号（首次上电用；同板稳定，不同板大概率不同）
 uint8_t nvs_cfg_assign_node_id(void);
 
+// 开机调用一次：读持久化的世代号 → +1 → 写回 NVS → 返回本次开机要用的 epoch
+// （NVS 只写一次/开机，无擦写磨损问题）
+uint8_t nvs_cfg_next_enc_epoch(void);
+
 // 单项读写（CLI 的 set/get 用）
 bool nvs_cfg_set(const char* key, const char* val);
 bool nvs_cfg_get(const char* key, char* val, size_t len);

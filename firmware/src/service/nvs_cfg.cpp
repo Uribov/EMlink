@@ -208,6 +208,21 @@ uint8_t nvs_cfg_assign_node_id(void) {
     return (uint8_t)(1 + ((mac[3] ^ mac[4] ^ mac[5]) % 254));   // 1..254
 }
 
+// 开机调用一次：读持久化世代号 → +1 → 写回 NVS → 返回本次开机要用的 epoch。
+// begin 失败也返回递增后的值（宁可用新值，不冒 nonce 复用风险）。
+uint8_t nvs_cfg_next_enc_epoch(void) {
+    Preferences p;
+    uint8_t v = 0;
+    if (p.begin(NVS_NS, false)) {
+        v = (uint8_t)(p.getUChar("enc_epoch", 0) + 1);
+        p.putUChar("enc_epoch", v);
+        p.end();
+    } else {
+        v = 1;
+    }
+    return v;
+}
+
 bool nvs_cfg_set(const char* key, const char* val) {
     if (!key || !val) return false;
     // 集中校验：任何入口（CLI / 远程 FRAME_CFG / 网页）都不准把非法值写进 NVS，

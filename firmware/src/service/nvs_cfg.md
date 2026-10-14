@@ -5,7 +5,7 @@
 
 ## 依赖
 - Arduino `Preferences`（NVS 封装）
-- 被 `cli`（读写）、各模块启动（读参数）使用
+- 被 `cli`（读写）、各模块启动（读参数）、`crypto`（世代号）使用
 
 ## 配置项（对齐架构 §9）
 
@@ -13,28 +13,30 @@
 |---|---|---|
 | role | 未设 | air/gcs/relay |
 | node_id | 自动 | 节点地址 1~254 |
-| sysid | AIR=1 GCS=255 | 系统标识 |
+| sysid | AIR=1 GCS=255 | 系统标识（P1-7：NVS 优先，0=按角色默认） |
 | freq | 915.0 | MHz |
 | sf/bw/cr | 7/125/5 | 扩频参数 |
 | power | 20 | dBm |
 | syncword | 0x12 | 私有同步字 |
 | uart_baud | 115200 | 飞控波特率 |
 | ttl | 5 | 最大跳数 |
-| ack_timeout_ms | 300 | ACK 耐心 |
+| ack_timeout_ms | 300 | ACK 耐心（**下限**：实际超时 = max(它, ACK 帧 ToA+50ms)，P1-2） |
 | retries | 3 | 重发次数 |
-| beacon_s | 1 | 信标周期 |
+| beacon_s | 1 | 信标周期（**当前未接线**，ADR 固定 5s 锚点，见 ota/frag 同批清理项） |
 | failsafe_s | 3 | 失联判定 |
 | name | — | 节点名 |
 | crypto_key | 全 0 | AES-128 密钥 16B（全 0 = 加密关闭，crypto 模块用） |
 | wifi_ssid | 空 | WiFi AP 名（空 = EMlink-<node_id>） |
 | wifi_pass | 空 | WiFi AP 密码（空 = 无密码） |
 | ota_url | 空 | 预留（将来从 URL 拉固件） |
+| enc_epoch | 0（自动 +1） | **非用户可设**：开机世代号，crypto 防跨重启 nonce 复用用（P1-4） |
 
 ## 关键实现点
 1. `nvs_cfg_load` 返回 false 表示 `role` 未设 → 上层强制进「仅 USB 配置」态（架构 §8.2）
 2. 保存后发 `EV_CFG_CHANGED`，各模块重载参数（`mac_set_params` 等）
 3. **集中校验**（P0-4）：`nvs_cfg_value_ok(key,val)` 是唯一校验入口（CLI / 远程 FRAME_CFG / 网页共用）；`nvs_cfg_set()` 写入前先过它，非法值一律拒绝——防止 `freq=0` / `sf=99` / `power=30` 这类"写进去就失联"的配置。范围：role=air/gcs/relay、node_id 1–254、freq 862–930（取 `radios/*.h` 的硬件能力宏）、sf 7–11、bw {125,250,500}、cr 5–8、power -9–22、ttl 1–10、ack_timeout_ms 50–10000、retries 0–10、beacon_s / failsafe_s 1–60、name ≤15、uart_baud 白名单；字符串→数字用 strtol/strtod 并校验尾部（`12abc` 判非法）
 4. **node_id 自动分配**（P0-4）：NVS 里为 0（未分配）时，`nvs_cfg_assign_node_id()` 从芯片 MAC 派生 1–254，`main.cpp` 首次上电落盘——避免全网默认 1 号撞号
+5. **逐键存取**：`Preferences` 按 key 存，不是整块 blob —— 新增键（如 `enc_epoch`）对老设备天然向后兼容（`getUChar(key, 默认值)`）
 
 ## 对外接口
 见 `nvs_cfg.h`。
@@ -58,8 +60,9 @@
 - `nvs_cfg_set/get(key, val)`：单项字符串读写（CLI 的 `set/get` 用），内部做字符串↔数值映射（如 "air"↔ROLE_AIR）；`set` 写入前先过集中校验（P0-4）
 - `nvs_cfg_value_ok(key, val)`（P0-4）：唯一校验入口（CLI / 远程 / 网页共用）
 - `nvs_cfg_assign_node_id()`（P0-4）：MAC 派生 1–254 节点号（首次上电用）
+- `nvs_cfg_next_enc_epoch()`（P1-4）：开机读 `enc_epoch` 键 → +1 → 写回 → 返回；**不进白名单**（不是用户可设项），`cfg_t` 里没有这个字段（保持逐键独立）
 - `nvs_cfg_apply_kv(data, len)`：应用 "key=value"（FRAME_CFG 远程参数同步用）；白名单拒 `role`
 
 ### 调用时机
-- 上电：main.cpp `nvs_cfg_load` 读一次，分发给各模块（radio_init/mac_set_params 等）
+- 上电：main.cpp `nvs_cfg_load` 读一次，分发给各模块（radio_init/mac_set_params 等）；`crypto_init` 里调 `nvs_cfg_next_enc_epoch()`
 - 运行中：CLI `set` 单项写 NVS；`save` 后发 EV_CFG_CHANGED，各模块重载

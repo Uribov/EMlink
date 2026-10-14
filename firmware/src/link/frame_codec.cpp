@@ -39,11 +39,12 @@ size_t frame_encode(const frame_t* f, uint8_t* buf, size_t cap) {
     buf[7] = f->relay_id;
     buf[8] = f->orig_sysid;
     buf[9] = f->net_id;
-    memcpy(&buf[10], f->frag_hdr, 4);
+    buf[10] = f->enc_epoch;
+    memcpy(&buf[11], f->frag_hdr, 4);
     if (f->payload_len && f->payload)
-        memcpy(&buf[14], f->payload, f->payload_len);
+        memcpy(&buf[15], f->payload, f->payload_len);
 
-    // CRC 覆盖 header(14) + payload
+    // CRC 覆盖 header(15) + payload
     uint16_t crc = frame_crc16(buf, FRAME_HDR_LEN + f->payload_len);
     buf[total - 2] = (uint8_t)(crc & 0xFF);
     buf[total - 1] = (uint8_t)((crc >> 8) & 0xFF);
@@ -78,8 +79,9 @@ bool frame_decode(const uint8_t* buf, size_t len, frame_t* f) {
     f->relay_id   = buf[7];
     f->orig_sysid = buf[8];
     f->net_id     = buf[9];
-    memcpy(f->frag_hdr, &buf[10], 4);
-    f->payload     = &buf[14];
+    f->enc_epoch  = buf[10];
+    memcpy(f->frag_hdr, &buf[11], 4);
+    f->payload     = &buf[15];
     f->payload_len = payload_len;
 
     return true;
