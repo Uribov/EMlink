@@ -340,6 +340,8 @@ uint32_t mesh_rx_count()       { return g_rx; }
 uint32_t mesh_last_rx_ms()     { return g_last_rx_ms; }
 uint32_t mesh_id_conflict_count() { return g_id_conflict; }
 
+uint8_t mesh_my_id(void) { return g_my_node_id; }
+
 // ---- mesh_task：收帧 -> 解码 -> ACK/去重/TTL -> 投递/转发 ----
 static void mesh_task_func(void* arg) {
     (void)arg;

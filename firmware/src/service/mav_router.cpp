@@ -19,6 +19,7 @@
 enum { SRC_UART = 0, SRC_USB = 1, SRC_MESH = 2 };
 
 static uint8_t g_local_sysid = 0;
+static uint32_t g_sysid_conflict = 0;
 static uint8_t g_role = ROLE_UNSET;
 static uint8_t g_node_id = 1;
 static uint8_t g_ttl = FRAME_DEF_TTL;
@@ -69,6 +70,7 @@ static bool mav_crc_ok(const uint8_t* buf, size_t len) {
 
 void mav_router_init(uint8_t local_sysid) {
     g_local_sysid = local_sysid;
+    g_sysid_conflict = 0;
     memset(&g_rx_uart, 0, sizeof(g_rx_uart));
     memset(&g_rx_usb, 0, sizeof(g_rx_usb));
     if (!g_tx_cache_lock) g_tx_cache_lock = xSemaphoreCreateMutex();
@@ -79,6 +81,14 @@ void mav_router_init(uint8_t local_sysid) {
         if (c.ttl != 0)     g_ttl = c.ttl;
     }
 }
+
+uint8_t mav_router_local_sysid(void) { return g_local_sysid; }
+
+void mav_router_note_peer_sysid(uint8_t peer_sysid) {
+    if (g_local_sysid != 0 && peer_sysid == g_local_sysid) g_sysid_conflict++;
+}
+
+uint32_t mav_router_sysid_conflict_count(void) { return g_sysid_conflict; }
 
 bool mav_router_heartbeat_ok() {
     return (millis() - g_last_hb_ms) < 5000;   // 5s 内有心跳视为在线

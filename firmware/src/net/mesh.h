@@ -52,5 +52,8 @@ uint32_t mesh_last_rx_ms();   // 最后收帧时间 ms（失联判定用）
 // 撞号冲突计数（收到"自称本机 node_id"且 seq 不在本机已发序号里的陌生帧）
 uint32_t mesh_id_conflict_count();
 
+// 本机无线节点号（撞号检测要拿它排除"自己中继回来的帧"）
+uint8_t mesh_my_id(void);
+
 // 启动 mesh 任务（内部 xTaskCreate mesh_task_func，任务函数为模块内 static）
 void mesh_start(void);

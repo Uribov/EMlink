@@ -24,7 +24,9 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 收到帧时调 `route_learn(f->src_id, 上一跳)`，回信单播省一半空口（架构 §4.5）。
 
 ## 对外接口
-见 `mesh.h`。
+见 `mesh.h`。要点：
+- `mesh_my_id()`：本机 node_id（撞号检测要拿它排除"自己中继回来的帧"，P1-7）
+- `mesh_id_conflict_count()`：node_id 撞号计数；`mesh_drop_crc_count()` 等收发统计
 
 ## 验收（P2）
 - 3 节点链式（A–B–C）广播，A/C 经 B 可达；同一帧 B 只转发一次（去重生效）

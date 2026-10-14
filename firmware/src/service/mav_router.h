@@ -20,6 +20,15 @@
 // 初始化（绑定本机角色 sysid）
 void mav_router_init(uint8_t local_sysid);
 
+// 本机 MAVLink sysid（0 = 无 MAVLink 业务）
+uint8_t mav_router_local_sysid(void);
+
+// 远端节点自报的 sysid（由 main.cpp 的 on_mesh_rx 喂入）：与本机相同 → 撞号计数
+void mav_router_note_peer_sysid(uint8_t peer_sysid);
+
+// sysid 撞号次数（多机配置错误的现场证据）
+uint32_t mav_router_sysid_conflict_count(void);
+
 // 喂入一段 MAVLink 字节流（来自 q_uart_rx / q_usb_rx / mesh_rx_cb）
 // 内部按帧切分（0xFD + LEN + CRC），逐条调 mav_router_handle_msg
 void mav_router_feed(const uint8_t* data, size_t len);

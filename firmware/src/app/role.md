@@ -9,13 +9,14 @@
 ## 三角色数据通路
 | 角色 | 数据通路 |
 |---|---|
-| AIR | UART(飞控) ↔ mesh ↔ LoRa；mav_router 用飞控 sysid |
-| GCS | USB CDC0(QGC) ↔ mesh ↔ LoRa；mav_router 用 255 |
+| AIR | UART(飞控) ↔ mesh ↔ LoRa；mav_router 用本机 sysid（NVS 优先，默认 1） |
+| GCS | USB CDC0(QGC) ↔ mesh ↔ LoRa；mav_router 用本机 sysid（NVS 优先，默认 255） |
 | RELAY | 仅 mesh 转发，不接飞控/USB 数据 |
 
 ## 关键实现点
 - `role_apply` 后调 `failsafe_enter()` 进入电源/接口状态机（架构 §8.2）
 - `role==ROLE_UNSET` → 强制「仅 USB 配置」态，等 CLI 设角色
+- **本机 sysid 取值**：NVS `sysid` 优先，为 0 时才按角色默认（AIR=1 / GCS=255 / RELAY=0）；多机同场靠 NVS sysid 区分，撞号由 mav_router 计数（P1-7）
 
 ## 对外接口
 见 `role.h`。
@@ -29,14 +30,14 @@
 按 NVS 里的 `role` 决定这台机器"当谁"——AIR（接飞控）/ GCS（接地站）/ RELAY（纯中继）。
 
 ### 实现
-- `role_apply(role)`：记下角色，并按角色定本机 MAVLink sysid（AIR=1、GCS=255）→ 调 `mav_router_init(sysid)`
+- `role_apply(role)`：记下角色；本机 MAVLink sysid 按 **NVS `sysid` 优先**（`sysid=0` 才按角色默认：AIR=1、GCS=255、RELAY=0）→ 调 `mav_router_init(sysid)`（P1-7 前写死角色默认值，多机同场必撞号）
 - `role_current()`：返回当前角色（stats 显示、LED 用）
 
 ### 三角色数据通路
 | 角色 | 数据通路 |
 |---|---|
-| AIR | UART(飞控) ↔ mesh ↔ LoRa，mav_router 用飞控 sysid |
-| GCS | USB CDC0(QGC) ↔ mesh ↔ LoRa，mav_router 用 255 |
+| AIR | UART(飞控) ↔ mesh ↔ LoRa，mav_router 用本机 sysid（NVS 优先，默认 1） |
+| GCS | USB CDC0(QGC) ↔ mesh ↔ LoRa，mav_router 用本机 sysid（NVS 优先，默认 255） |
 | RELAY | 仅 mesh 转发，不接飞控/USB 数据 |
 
 ### 注意

@@ -49,6 +49,9 @@ static void on_mesh_rx(const frame_t* f, float rssi, float snr) {
     }
 
     if (f->orig_sysid != 0) addr_map_learn(f->orig_sysid, f->src_id);
+    // sysid 撞号检测：远端节点用着与本机相同的 MAVLink sysid（多机最常见的配置错误）
+    // 排除自己中继回来的帧（src_id == 本机 node_id）
+    if (f->orig_sysid != 0 && f->src_id != mesh_my_id()) mav_router_note_peer_sysid(f->orig_sysid);
     if (f->frag) {
         frag_hdr_t hdr;
         memcpy(&hdr, f->frag_hdr, 4);

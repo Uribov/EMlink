@@ -28,7 +28,16 @@
 GCS HEARTBEAT 投 `q_mac_tx` 时设 **QOS2 最高优先级**，飞控自己数心跳超时→返航，固件只保证不误时。
 
 ## 对外接口
-见 `mav_router.h`。
+见 `mav_router.h`。要点：
+- `mav_router_init(local_sysid)`：本机 sysid 由 `role_apply()` 传入（NVS 优先，见 role.md）；顺带清零撞号计数
+- `mav_router_local_sysid()` / `mav_router_sysid_conflict_count()`：CLI status 显示用
+- `mav_router_note_peer_sysid(peer_sysid)`：由 `main.cpp` 的 `on_mesh_rx()` 喂入远端帧的 `orig_sysid`
+
+## 撞号检测（P1-7）
+多机同场最常见的配置错误：两台机器配了同一个 MAVLink sysid → QGC 看到两条流互相覆盖，且都指向同一架飞机。
+- 判定：`on_mesh_rx` 收到远端帧且 `orig_sysid != 0 && orig_sysid == 本机 sysid && src_id != 本机 node_id` → `mav_router_note_peer_sysid()` 计数
+- **必须排除"自己中继回来的帧"**：本机广播帧被邻居转回来时 `src_id` 仍是本机 node_id（转发只改 `relay_id`/`ttl`），否则会自己撞自己、计数虚高
+- 现场证据：CLI `status` 的 `sysid撞号=N`（持续增长即确有他机用同号）；固件不自动改号——**自动改号等于飞行中改身份**，需先与 GCS 约定（P1-8 遗留项）
 
 ## 验收（P3）
 - 地面站同时看到 2 架飞机（APM 或 PX4，均配 MAVLink 2）；能读参数、传航点、收遥测
