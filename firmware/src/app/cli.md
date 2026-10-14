@@ -51,7 +51,7 @@ help                  帮助
 | `save` | 发 `EV_CFG_CHANGED`（各模块重载） |
 | `reset` | `esp_restart()` |
 | `factory` | `nvs_cfg_factory()` + `nvs_cfg_save()` → 恢复出厂默认（P0-4） |
-| `status` | 七行：role / node_id+撞号冲突计数 / **sysid+sysid撞号计数**（P1-7）/ RF 就绪状态 / **占空比超限放行次数**（P1-2）/ **认证失败帧数**（P1-8）/ **表容量**（去重淘汰·路由过期/淘汰·地址过期/淘汰·分片槽淘汰，P1-9） |
+| `status` | 八行：role / node_id+撞号冲突计数 / **sysid+sysid撞号计数**（P1-7）/ RF 就绪状态 / **占空比超限放行次数**（P1-2）/ **认证失败帧数**（P1-8）/ **重放丢弃帧数**（P1-4）/ **表容量**（去重淘汰·路由过期/淘汰·地址过期/淘汰·分片槽淘汰，P1-9） |
 | `stats` | `stats_print` |
 | `crypto <32hex>|off` | 设密钥 / 关闭加密 / 空=看状态 |
 | `wifi [off]` | 开/关 WiFi 维护模式（ota 模块） |

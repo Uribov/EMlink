@@ -32,3 +32,12 @@ bool crypto_set_key_hex(const char* hex);
 
 // 关闭加密（清密钥 + 写 NVS）
 void crypto_disable();
+
+// 本机发送时写入帧头的开机世代号（crypto_init 内取，见下）
+uint8_t crypto_enc_epoch(void);
+
+// 收端重放检查：成功返回 true（并记账）；重放/过旧返回 false
+bool crypto_check_replay(uint8_t src_id, uint16_t seq);
+
+// 重放丢弃计数（诊断用）
+uint32_t crypto_replay_drop_count(void);

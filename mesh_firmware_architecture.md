@@ -419,10 +419,13 @@ mavlink monitor on      （旁路观察 MAVLink，预留）
 
 > 以下三个扩展模块（crypto / ota / adr）已全部实现，此处保留实现摘要与位置，供查阅。§13.4 及 §14 为真正的未来演进方向。
 
-### 13.1 加密（crypto）—— ✅ 已实现
-- 帧头 `flags` 余位[1:0] 的 bit0 用作「加密标志」（`FLAG_ENC`）
-- payload 加密（AES-128-CCM，mbedTLS）：密钥 16B 存 NVS、tag 4B、nonce 13B = 固定0 + src_id + seq（防重放）
-- 帧头不加密（要能路由）；转发**原样转密文**（nonce 只依赖 src_id/seq，转发不改）
+### 13.1 加密（crypto）—— ✅ 已实现（P1-4 加固）
+- 帧头 `flags` bit0 = 「加密标志」（`FLAG_ENC`）；帧头偏移 10 新增 `enc_epoch`（开机世代号，NVS 持久化、每次开机 +1）
+- payload 加密（AES-128-CCM，mbedTLS）：密钥 16B 存 NVS、tag 4B、nonce 13B = 9B 零 + `enc_epoch` + `src_id` + `seq`(2B)
+- **AAD 7B** = 逐跳不变的帧头（`src_id`/`dst_id`/`type`/`enc_epoch`/`orig_sysid`/`seq`）→ 无密钥方改帧头会认证失败；`ttl`/`relay_id` 每跳都改，**必须排除**
+- 收端**重放窗**：按发送方 8 源 × 64 位滑动窗，窗口外旧密文重放被拦下（计「重放丢弃」）
+- 帧头不加密（要能路由）；转发**原样转密文**（nonce 只依赖逐跳不变字段，转发不改）
+- 已知限制：`enc_epoch` 仅 1 字节（同密钥跨 256 次开机后可能重现）；发送方重启后可能被收端窗口"饿死"（待决项 A-5c）
 - 默认关闭，密钥经 CLI `crypto <32hex>` / 网页（ota 模块）设置
 - 位置：`service/crypto`（依赖 frame_codec 的 FLAG_ENC + nvs_cfg 的 crypto_key）
 

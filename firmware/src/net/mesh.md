@@ -58,7 +58,7 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 5. PING 帧 → 回 ACK，不投递不转发，continue
 6. 数据帧且 ack_req → `mac_send_ack`
 7. 广播帧 → `route_learn(src, relay_id)` 学反向路径
-8. 投递本机（dst=0 或 dst=自己；类型 DATA/NACK/CFG）：`enc` 帧先 `crypto_open_frame` 解密；**成功**才 `g_rx_cb`（用 `rx` 副本、明文替换 payload）；**失败** `g_drop_auth++` 且只跳过投递（P1-8：原来是 `continue`，会连带吞掉转发）
+8. 投递本机（dst=0 或 dst=自己；类型 DATA/NACK/CFG）：`enc` 帧先 `crypto_open_frame` 解密；**成功**才 `g_rx_cb`（用 `rx` 副本、明文替换 payload）；**失败** `g_drop_auth++` 且只跳过投递（P1-8：原来是 `continue`，会连带吞掉转发）。解密成功后还要过 `crypto_check_replay(src_id, seq)`（P1-4 收端重放窗），不通过同样只跳过投递、转发照旧
 9. 转发判定（**密文原样转发**，用原帧 `f`；转发不需要密钥）
 - 循环带 100ms 超时收帧，超时也调 `frag_tick()`（缺件 NACK 检查）
 - 任务开头 `watchdog_register_current()` 订阅任务看门狗；循环每轮 `watchdog_feed()`（**含 100ms 超时走 frag_tick 的分支**，P0-1）

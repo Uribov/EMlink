@@ -430,6 +430,9 @@ static void mesh_task_func(void* arg) {
                 if (plen == 0) {
                     g_drop_auth++;      // 认证失败：本机不投递（但仍按 TTL 转发）
                     deliver = false;
+                } else if (!crypto_check_replay(f.src_id, f.seq)) {
+                    // 重放/过旧：不投递（转发照旧）
+                    deliver = false;
                 } else {
                     rx.payload     = plain;
                     rx.payload_len = plen;

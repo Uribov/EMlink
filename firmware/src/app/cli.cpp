@@ -130,6 +130,9 @@ void cli_handle_line(const char* line) {
         snprintf(line, sizeof(line), "认证失败: %u 帧（只影响本机投递，不影响转发）\r\n",
                  (unsigned)mesh_drop_auth_count());
         cli_print(line);
+        snprintf(line, sizeof(line), "重放丢弃: %u 帧（密文层第二道闸，P1-4）\r\n",
+                 (unsigned)crypto_replay_drop_count());
+        cli_print(line);
         snprintf(line, sizeof(line), "表容量: 去重淘汰=%u 路由过期=%u/%u 地址过期=%u/%u 分片槽淘汰=%u\r\n",
                  (unsigned)mesh_dedup_evict_count(),
                  (unsigned)route_expired_count(), (unsigned)route_evict_count(),
