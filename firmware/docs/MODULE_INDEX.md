@@ -13,7 +13,7 @@
 | link | frame_codec | 帧编解码 + CRC（纯逻辑） |
 | link | mac | LBT + ACK 重传 |
 | link | duty | 占空比限流 |
-| link | adr | 自适应速率（**预留**，§13.3） |
+| link | adr | 自适应速率（BEACON 锚定固定速率表，§13.3 已实现） |
 | net | mesh | 泛洪转发 + 去重 + TTL |
 | net | route | 反向路径 + 路由表预留 |
 | service | mav_router | MAVLink 解析 + sysid 路由 |
@@ -21,8 +21,8 @@
 | service | addr_map | sysid↔node 对照表 |
 | service | nvs_cfg | 配置持久化 |
 | service | watchdog | 看门狗 + 射频自救 |
-| service | crypto | 帧载荷加密（**预留**，§13.1） |
-| service | ota | OTA 固件升级（**预留**，§13.2） |
+| service | crypto | 帧载荷加密（AES-128-CCM，§13.1 已实现） |
+| service | ota | OTA 固件升级 + WiFi Web 管理（§13.2 已实现） |
 | app | role | 角色数据通路 |
 | app | cli | 命令行 |
 | app | stats | 统计 + LED + 喂狗 |
@@ -40,14 +40,14 @@ service: mav_router ─┬─ frag, addr_map, mesh
          addr_map (无)
          nvs_cfg (Preferences)
          watchdog ─┬─ radio
-         crypto ─┬─ frame_codec (预留)
-         ota ─┬─ frag (预留)
+         crypto ─┬─ frame_codec, nvs_cfg
+         ota ─┬─ nvs_cfg, crypto, radio
 net:     mesh ─┬─ frame_codec, route
          route (无)
 link:    mac ─┬─ radio, frame_codec, duty
          frame_codec (无，纯逻辑)
          duty (无)
-         adr ─┬─ radio (预留)
+         adr ─┬─ radio, mesh, role
 drivers: radio ─┬─ RadioLib, pinmap
          uart_fc / usb_cdc / power_detect ─┬─ pinmap
 ```
@@ -62,7 +62,7 @@ drivers: radio ─┬─ RadioLib, pinmap
 | **P3** | addr_map → frag → mav_router | 2 机 + 航点 + 遥测 |
 | **P4** | failsafe_policy | 断链 3s 返航 |
 
-**预留模块（不在 P0~P4，见架构 §13）**：crypto / ota / adr 当前只有 `.h` 占位 + `.md` 说明，不生成 `.cpp`。
+**预留模块（不在 P0~P4，见架构 §13）**：crypto / adr / ota 三个已全部实现（P4 后补做），无剩余预留模块。
 
 ## 4. 给大模型的固定提示词模板
 

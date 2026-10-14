@@ -5,6 +5,7 @@
 #include "mac.h"
 #include "../rtos.h"
 #include "frame_codec.h"
+#include "adr.h"
 #include "../drivers/radio.h"
 #include "duty.h"
 #include "../service/nvs_cfg.h"
@@ -129,6 +130,9 @@ static void mac_task_func(void* arg) {
     (void)arg;
     queue_item_t item;
     for (;;) {
+        // ADR 周期 tick（与收发同任务串行，切 SF 不会与 SPI 冲突）
+        adr_tick();
+
         // 按优先级读：hi > med > lo（高优先级帧最多延迟 5ms）
         BaseType_t got = xQueueReceive(q_mac_tx_hi, &item, 0);
         if (got != pdTRUE) got = xQueueReceive(q_mac_tx_med, &item, 0);

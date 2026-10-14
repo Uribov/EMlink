@@ -12,7 +12,7 @@
 | 偏移 | 字段 | 字节 | 说明 |
 |---|---|---|---|
 | 0 | `ver:type` | 1 | 高4b版本=1；低4b类型 |
-| 1 | `flags` | 1 | `qos[7:6]` `ack_req[5]` `frag[4]` `proto[3:2]` 余位[1:0] |
+| 1 | `flags` | 1 | `qos[7:6]` `ack_req[5]` `frag[4]` `proto[3:2]` `enc[0]` |
 | 2 | `src_id` | 1 | 源节点地址 |
 | 3 | `dst_id` | 1 | 目的节点地址，0=广播 |
 | 4–5 | `seq` | 2 | 源序号（小端，回绕） |
@@ -63,7 +63,12 @@
 | 末2字节 | crc16 |
 
 ### 常量
-`FRAME_HDR_LEN=14`、`FRAME_MAX_PAYLOAD=179`、`FRAME_MTU=200`、`FRAME_CRC_LEN=2`、`FRAME_DEF_TTL=5`
+`FRAME_HDR_LEN=14`、`FRAME_MAX_PAYLOAD=179`、`FRAME_MTU=200`、`FRAME_CRC_LEN=2`、`FRAME_DEF_TTL=5`、
+`FRAME_TAG_LEN=4`（crypto tag）、`FRAME_MAX_PLAIN=175`（加密帧明文上限 = 179-4）
+
+### 加密标志（FLAG_ENC，flags bit0）
+- `frame_t.enc` 字段 ↔ 线上 `flags` bit0；frame_codec 只做编解码，**不做加解密**（加解密在 crypto 模块）
+- 加密后 payload = 明文 + 4B tag，故明文上限降到 `FRAME_MAX_PLAIN=175`
 
 ### 接口与关键点
 - `frame_encode(frame_t*→buf)` / `frame_decode(buf→frame_t*)` / `frame_crc16()`

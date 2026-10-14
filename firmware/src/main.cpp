@@ -14,11 +14,13 @@
 #include "drivers/usb_cdc.h"
 #include "drivers/power_detect.h"
 #include "link/mac.h"
+#include "link/adr.h"
 #include "net/mesh.h"
 #include "service/mav_router.h"
 #include "service/frag.h"
 #include "service/addr_map.h"
 #include "service/watchdog.h"
+#include "service/crypto.h"
 #include "app/role.h"
 #include "app/cli.h"
 #include "app/stats.h"
@@ -50,6 +52,7 @@ void setup() {
 
     // 1. 配置
     nvs_cfg_load(&g_cfg);
+    crypto_init();   // 读密钥，判定加密开关（在射频/组网前，收发共用同一开关）
 
     // 2. 通信基础设施（最先，幂等）
     rtos_comms_init();
@@ -60,6 +63,7 @@ void setup() {
         radio_init(g_cfg.freq, g_cfg.bw, g_cfg.sf, g_cfg.cr, g_cfg.syncword, g_cfg.power);
     }
     radio_start();
+    adr_init();          // ADR：先停 SF10 等 BEACON（GCS 会主动发锚点）
     mac_set_params(g_cfg.ack_timeout_ms, g_cfg.retries);
     mac_start();
     mesh_init();

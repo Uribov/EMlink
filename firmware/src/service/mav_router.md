@@ -58,7 +58,8 @@ LoRa mesh ──> on_mesh_rx ──> mav_router_feed ─────────
 - HEARTBEAT(msgid=0) 转 LoRa 时用 QOS2（最高优先级，架构 §8.2）
 
 ### 分片
-- MAVLink 消息 len > FRAME_MAX_PAYLOAD(179) → `frag_split` 拆片，每片一个 mesh 帧（frag=1，frag_hdr 填）
+- MAVLink 消息 len > FRAME_MAX_PLAIN(175) → `frag_split` 拆片，每片一个 mesh 帧（frag=1，frag_hdr 填）
+- 每片 frame_encode 前 `crypto_seal_frame` 加密（加密后密文 179 正好塞满 payload 区）
 
 ### mavlink_task（核1 优先级12）
 从 q_uart_rx / q_usb_rx 读字节流块，分别 feed；无 mesh 帧（mesh 帧走 main.cpp 的 on_mesh_rx 回调）

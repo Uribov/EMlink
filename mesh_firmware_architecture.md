@@ -383,23 +383,26 @@ mavlink monitor on      （旁路观察 MAVLink）
 
 > 以下功能已规划但未实现，作为后续演进方向。帧格式/接口已预留钩子，实现时读本节即可，无需推倒重来。
 
-### 13.1 加密（crypto）
-- 帧头 `flags` 余位[1:0] 再留 1 位「加密标志」
-- payload 前留 nonce/IV（AES-CCM），帧头不加密（要能路由）
-- ESP32-S3 硬件 AES 加速；`seq` 字段复用做防重放
-- 位置：`service/crypto`
+### 13.1 加密（crypto）—— ✅ 已实现
+- 帧头 `flags` 余位[1:0] 的 bit0 用作「加密标志」（`FLAG_ENC`）
+- payload 加密（AES-128-CCM，mbedTLS）：密钥 16B 存 NVS、tag 4B、nonce 13B = 固定0 + src_id + seq（防重放）
+- 帧头不加密（要能路由）；转发**原样转密文**（nonce 只依赖 src_id/seq，转发不改）
+- 默认关闭，密钥经 CLI `crypto <32hex>` / 网页（ota 模块）设置
+- 位置：`service/crypto`（依赖 frame_codec 的 FLAG_ENC + nvs_cfg 的 crypto_key）
 
-### 13.2 OTA 固件升级（WiFi，ota）
-- 落地维护时连 WiFi，用 `esp_ota` 快速升级固件（LoRa 速率太低不适合传固件，只做参数 OTA，见 §13.4）
-- `partition` 表改用 OTA 双分区（ota_0/ota_1 + otadata 回滚）
-- 4MB Flash 双 OTA（1.5M×2）+ otadata + NVS 够用，**不加大的 spiffs**
-- 流程：连 WiFi → 下载固件 → 校验 → 写 ota_1 → 重启切分区
-- 位置：`service/ota`（依赖 WiFi 栈，占 core0，届时重估核心分配）
+### 13.2 OTA 固件升级（WiFi，ota）—— ✅ 已实现（WiFi AP Web 管理，学 ELRS）
+- WiFi AP 模式：SSID `EMlink-<node_id>`，IP 192.168.4.1，密码可空；CLI `wifi` 触发，`wifi off` 退出
+- Arduino WebServer + 内嵌 HTML（PROGMEM，不占 RAM 不加 spiffs）：改参数 / 设密钥 / 刷固件(Update.h) / 退出
+- 维护模式 WiFi 与 LoRa **二选一**：`ota_start` 先 `radio_suspend()`（射频 standby + no-op），退出 `radio_resume()`；adr/mac/mesh 零改动
+- `partition` 表改用 OTA 双分区（`partitions_ota.csv`：app0/app1 各 1.5M + otadata 回滚），刷固件写空闲分区重启切过去，失败可回滚
+- 位置：`service/ota`（依赖 nvs_cfg 的 wifi_ssid/pass + crypto 设密钥 + radio suspend/resume）
 
-### 13.3 自适应速率（adr）
-- 根据 RSSI/SNR 动态调 SF/BW：近距离降 SF 提速，远距离升 SF 保链路
-- `radio.h` 已有 `radio_lastRssi()/radio_lastSnr()` 接口
-- 位置：`link/adr`
+### 13.3 自适应速率（adr）—— ✅ 已实现（BEACON 锚定固定速率表）
+- 非真动态自适应（不按 RSSI/SNR 实时调），就是一张固定速率表，靠 GCS 的 BEACON 对齐全网节奏
+- GCS 每 5s 发 BEACON（固定 SF10 锚点）；5s 周期：t=0~1s SF10（慢速保链接）、t=1~4.5s SF7（快速）、t=4.5~5s SF10（guard 窗抵消 BEACON 空中传播延迟）
+- 非 GCS 开机停 SF10 等 BEACON，收到即对齐周期起点；`radio_set_sf`（standby→setSpreadingFactor→startReceive）运行时切 SF
+- 真动态自适应（按邻居 RSSI/SNR 调 SF/BW/功率）留后演进
+- 位置：`link/adr`（依赖 radio 的 radio_set_sf + mesh 的 BEACON + role 判 GCS）
 
 ### 13.4 远程参数同步（预留，无独立模块）
 - 帧类型预留「配置帧」，GCS 广播配置给全网

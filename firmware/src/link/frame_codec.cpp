@@ -29,6 +29,7 @@ size_t frame_encode(const frame_t* f, uint8_t* buf, size_t cap) {
     buf[1] = ((f->qos & 0x03) << 6)
            | (f->ack_req ? FLAG_ACK_REQ : 0)
            | (f->frag    ? FLAG_FRAG   : 0)
+           | (f->enc     ? FLAG_ENC    : 0)
            | FLAG_PROTO(f->proto);
     buf[2] = f->src_id;
     buf[3] = f->dst_id;
@@ -68,6 +69,7 @@ bool frame_decode(const uint8_t* buf, size_t len, frame_t* f) {
     f->qos        = (buf[1] >> 6) & 0x03;
     f->ack_req    = (buf[1] & FLAG_ACK_REQ) != 0;
     f->frag       = (buf[1] & FLAG_FRAG) != 0;
+    f->enc        = (buf[1] & FLAG_ENC) != 0;
     f->proto      = (buf[1] & FLAG_PROTO_MASK) >> 2;
     f->src_id     = buf[2];
     f->dst_id     = buf[3];

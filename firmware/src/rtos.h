@@ -55,6 +55,11 @@
 #define STATS_TASK_PRIO     4
 #define STATS_TASK_STACK    2048
 
+// OTA（WiFi Web 管理）任务：跑 core1（WiFi 栈占 core0，射频也 core0，维护模式二选一）
+#define OTA_TASK_CORE       1
+#define OTA_TASK_PRIO       6
+#define OTA_TASK_STACK      8192   // WebServer + 内嵌 HTML，栈要大
+
 // ============================================================
 // 队列（架构 §3.2）：长度 + 所有权（生产方 → 消费方）
 // 句柄统一由 rtos_comms_init() 创建，各模块只引用不创建

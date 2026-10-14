@@ -1,6 +1,6 @@
 // ============================================================
 // frag.cpp —— MAVLink 大包分片 / 重组 / 缺件计数
-// 依赖 frame_codec.h（FRAME_MAX_PAYLOAD=180）；约定见架构 §6
+// 依赖 frame_codec.h（FRAME_MAX_PLAIN=175）；约定见架构 §6
 // ============================================================
 #include "frag.h"
 #include <string.h>
@@ -15,7 +15,7 @@ struct reasm_slot_t {
     uint8_t  frag_total;
     uint8_t  got;                       // 位图（低 8 位够 8 片）
     uint32_t start_ms;
-    uint8_t  data[FRAG_MAX_PIECES * FRAME_MAX_PAYLOAD];
+    uint8_t  data[FRAG_MAX_PIECES * FRAME_MAX_PLAIN];
     size_t   piece_len[FRAG_MAX_PIECES];
 };
 
@@ -30,17 +30,17 @@ void frag_init() {
 }
 
 size_t frag_split(const uint8_t* data, size_t len,
-                  uint8_t out[][FRAME_MAX_PAYLOAD], size_t max_frags,
+                  uint8_t out[][FRAME_MAX_PLAIN], size_t max_frags,
                   frag_hdr_t* hdr) {
     if (!data || !out) return 0;
 
-    if (len <= FRAME_MAX_PAYLOAD) {
+    if (len <= FRAME_MAX_PLAIN) {
         if (max_frags >= 1) memcpy(out[0], data, len);
         if (hdr) { hdr->msg_id = 0; hdr->frag_index = 0; hdr->frag_total = 1; hdr->frag_seq = g_frag_seq; }
         return 1;
     }
 
-    size_t total = (len + FRAME_MAX_PAYLOAD - 1) / FRAME_MAX_PAYLOAD;
+    size_t total = (len + FRAME_MAX_PLAIN - 1) / FRAME_MAX_PLAIN;
     if (total > max_frags || total > FRAG_MAX_PIECES) return 0;
 
     if (hdr) {
@@ -51,8 +51,8 @@ size_t frag_split(const uint8_t* data, size_t len,
     }
 
     for (size_t i = 0; i < total; i++) {
-        size_t off = i * FRAME_MAX_PAYLOAD;
-        size_t n = (len - off < FRAME_MAX_PAYLOAD) ? (len - off) : FRAME_MAX_PAYLOAD;
+        size_t off = i * FRAME_MAX_PLAIN;
+        size_t n = (len - off < FRAME_MAX_PLAIN) ? (len - off) : FRAME_MAX_PLAIN;
         memcpy(out[i], data + off, n);
     }
     return total;
@@ -89,8 +89,8 @@ void frag_reassemble(uint8_t orig_sysid, const frag_hdr_t* hdr, const uint8_t* d
     }
 
     // 存片
-    if (hdr->frag_index < FRAG_MAX_PIECES && len <= FRAME_MAX_PAYLOAD) {
-        size_t off = (size_t)hdr->frag_index * FRAME_MAX_PAYLOAD;
+    if (hdr->frag_index < FRAG_MAX_PIECES && len <= FRAME_MAX_PLAIN) {
+        size_t off = (size_t)hdr->frag_index * FRAME_MAX_PLAIN;
         memcpy(s->data + off, data, len);
         s->piece_len[hdr->frag_index] = len;
         s->got |= (1u << hdr->frag_index);

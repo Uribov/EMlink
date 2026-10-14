@@ -25,6 +25,10 @@
 | beacon_s | 1 | 信标周期 |
 | failsafe_s | 3 | 失联判定 |
 | name | — | 节点名 |
+| crypto_key | 全 0 | AES-128 密钥 16B（全 0 = 加密关闭，crypto 模块用） |
+| wifi_ssid | 空 | WiFi AP 名（空 = EMlink-<node_id>） |
+| wifi_pass | 空 | WiFi AP 密码（空 = 无密码） |
+| ota_url | 空 | 预留（将来从 URL 拉固件） |
 
 ## 关键实现点
 1. `nvs_cfg_load` 返回 false 表示 `role` 未设 → 上层强制进「仅 USB 配置」态（架构 §8.2）
@@ -42,7 +46,7 @@
 所有配置的"仓库"——读写 ESP32 的 NVS（掉电不丢的存储），CLI 的 set/get/save 都落到这里。
 
 ### 数据结构
-- `cfg_t`：内存镜像（role/node_id/sysid/freq/sf/bw/cr/power/syncword/uart_baud/ttl/ack_timeout_ms/retries/beacon_s/failsafe_s/name）
+- `cfg_t`：内存镜像（role/node_id/sysid/freq/sf/bw/cr/power/syncword/uart_baud/ttl/ack_timeout_ms/retries/beacon_s/failsafe_s/name/crypto_key[16]/wifi_ssid[32]/wifi_pass[32]/ota_url[96]）
 - NVS 命名空间 `"mesh"`，用 Arduino `Preferences` 封装
 
 ### 接口

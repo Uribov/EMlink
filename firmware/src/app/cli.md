@@ -4,7 +4,7 @@
 插 USB 弹出的命令行，配置 / 状态 / 调试入口。
 
 ## 依赖
-- `usb_cdc.h`（CDC1 收发）、`nvs_cfg.h`、`stats.h`
+- `usb_cdc.h`（CDC1 收发）、`nvs_cfg.h`、`crypto.h`、`ota.h`、`stats.h`
 
 ## 命令表（对齐架构 §9）
 ```
@@ -12,6 +12,8 @@ role gcs|air|relay   设置角色
 set <键> <值>         改配置      get <键>      读配置
 save                  保存        reset         重启
 status                看状态      stats         看统计
+crypto <32hex>|off    设/关加密密钥
+wifi [off]            开/关 WiFi 维护模式
 scan                  扫描信道/RSSI
 ping <node_id>        测通断
 mavlink monitor on    旁路观察 MAVLink（调试）
@@ -47,10 +49,12 @@ help                  帮助
 | `save` | 发 `EV_CFG_CHANGED`（各模块重载） |
 | `reset` | `esp_restart()` |
 | `status` / `stats` | 打印状态 / `stats_print` |
+| `crypto <32hex>|off` | 设密钥 / 关闭加密 / 空=看状态 |
+| `wifi [off]` | 开/关 WiFi 维护模式（ota 模块） |
 | `help` | 帮助 |
 
 ### 依赖
-- `usb_cdc`（CDC1 收发）、`nvs_cfg`（读写）、`stats`（stats 命令）
+- `usb_cdc`（CDC1 收发）、`nvs_cfg`（读写）、`crypto`（密钥命令）、`ota`（wifi 命令）、`stats`（stats 命令）
 
 ### 预留命令（架构 §9 里有、尚未实现）
 `scan`（信道扫描）、`ping`（测通断）、`mavlink monitor`（旁路观察）——待 P5 补

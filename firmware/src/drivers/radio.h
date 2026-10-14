@@ -42,8 +42,17 @@ int16_t radio_channelActivity();
 float radio_lastRssi();
 float radio_lastSnr();
 
+// 运行时切扩频因子（ADR 用）：standby -> setSpreadingFactor -> startReceive
+// 返回 true 成功；切参数时芯片必须不在收发状态（SX126x 硬要求）
+bool radio_set_sf(uint8_t sf);
+
 // 复位射频芯片
 void radio_hardReset();
+
+// 暂停射频（OTA 维护模式用：WiFi 与 LoRa 二选一）。暂停后所有射频操作 no-op
+void radio_suspend();
+// 恢复射频（回接收态）
+void radio_resume();
 
 // 启动射频任务（内部 xTaskCreate rf_task_func，任务函数为模块内 static）
 void radio_start(void);

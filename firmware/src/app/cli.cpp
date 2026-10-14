@@ -1,11 +1,13 @@
 // ============================================================
 // cli.cpp —— USB CDC1 命令行
-// 依赖 usb_cdc.h / nvs_cfg.h / stats.h；命令约定见架构 §9
+// 依赖 usb_cdc.h / nvs_cfg.h / crypto.h / stats.h；命令约定见架构 §9
 // ============================================================
 #include "cli.h"
 #include "../rtos.h"
 #include "../drivers/usb_cdc.h"
 #include "../service/nvs_cfg.h"
+#include "../service/crypto.h"
+#include "../service/ota.h"
 #include "../app/stats.h"
 #include <string.h>
 
@@ -30,6 +32,8 @@ void cli_help() {
               "  reset                重启\r\n"
               "  status               看状态\r\n"
               "  stats                看统计\r\n"
+              "  crypto <32hex>|off   设/关加密密钥（空=看状态）\r\n"
+              "  wifi [off]           开/关 WiFi 维护模式\r\n"
               "  help                 帮助\r\n");
 }
 
@@ -100,6 +104,28 @@ void cli_handle_line(const char* line) {
         stats_t s;
         stats_collect(&s);
         stats_print(&s);
+    } else if (strcmp(cmd, "crypto") == 0) {
+        if (n >= 2) {
+            if (strcmp(arg1, "off") == 0) {
+                crypto_disable();
+                cli_print("加密已关闭\r\n");
+            } else if (crypto_set_key_hex(arg1)) {
+                cli_print("密钥已设置，加密开启（全网节点须同一密钥）\r\n");
+            } else {
+                cli_print("用法：crypto <32个hex字符> | crypto off\r\n");
+            }
+        } else {
+            cli_print(crypto_enabled() ? "加密：开\r\n" : "加密：关\r\n");
+        }
+    } else if (strcmp(cmd, "wifi") == 0) {
+        if (n >= 2 && strcmp(arg1, "off") == 0) {
+            ota_stop();
+            cli_print("已退出 WiFi 维护模式\r\n");
+        } else {
+            cli_print("启动 WiFi 维护模式（LoRa 暂停）…\r\n");
+            ota_start();
+            cli_print("AP 已开，手机连 WiFi 后浏览器开 192.168.4.1\r\n");
+        }
     } else {
         cli_print("未知命令，输入 help\r\n");
     }

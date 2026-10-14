@@ -12,6 +12,10 @@
 #define FRAME_MAX_PAYLOAD  179    // 偏移 14~192；MAVLink 分片阈值
 #define FRAME_DEF_TTL      5      // 默认剩余跳数（最多 4 跳）
 
+// 加密（crypto 模块）相关：tag 长度 + 加密帧明文上限
+#define FRAME_TAG_LEN      4      // AES-CCM tag 4B（密文末尾）
+#define FRAME_MAX_PLAIN    175    // 加密帧明文上限 = FRAME_MAX_PAYLOAD - FRAME_TAG_LEN
+
 // 帧类型（type 低 4 位）
 enum : uint8_t {
     FRAME_DATA   = 0,
@@ -36,6 +40,7 @@ enum : uint8_t { QOS0 = 0, QOS1 = 1, QOS2 = 2 };
 // flags 位（偏移 1）
 #define FLAG_ACK_REQ    (1u << 5)
 #define FLAG_FRAG       (1u << 4)
+#define FLAG_ENC        (1u << 0)               // 加密标志（crypto 模块，payload 为密文）
 #define FLAG_PROTO_MASK (0x0Cu)                 // proto 占 [3:2]
 #define FLAG_PROTO(x)   (((x) << 2) & FLAG_PROTO_MASK)
 
@@ -48,6 +53,7 @@ struct frame_t {
     uint8_t  qos;          // QOS0/1/2
     bool     ack_req;      // 需要 ACK
     bool     frag;         // 是否分片帧
+    bool     enc;          // 是否加密（flags bit0；payload 为密文）
     uint8_t  proto;        // PROTO_*（payload 协议）
     uint8_t  src_id;       // 源节点地址 1~254
     uint8_t  dst_id;       // 目的节点地址；0=广播

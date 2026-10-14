@@ -27,6 +27,10 @@ void nvs_cfg_factory(cfg_t* out) {
     out->beacon_s       = 1;
     out->failsafe_s     = 3;
     memset(out->name, 0, sizeof(out->name));
+    memset(out->crypto_key, 0, sizeof(out->crypto_key));
+    memset(out->wifi_ssid, 0, sizeof(out->wifi_ssid));
+    memset(out->wifi_pass, 0, sizeof(out->wifi_pass));
+    memset(out->ota_url, 0, sizeof(out->ota_url));
 }
 
 // 加载；无配置则写默认。返回 false = role 未设（应强制进 CLI）
@@ -52,6 +56,11 @@ bool nvs_cfg_load(cfg_t* out) {
     out->beacon_s       = p.getUShort("beacon_s", 1);
     out->failsafe_s     = p.getUShort("failsafe_s", 3);
     p.getString("name", out->name, sizeof(out->name));
+    memset(out->crypto_key, 0, sizeof(out->crypto_key));   // 默认关闭
+    if (p.getBytesLength("crypto_key") == 16) p.getBytes("crypto_key", out->crypto_key, 16);
+    p.getString("wifi_ssid", out->wifi_ssid, sizeof(out->wifi_ssid));
+    p.getString("wifi_pass", out->wifi_pass, sizeof(out->wifi_pass));
+    p.getString("ota_url", out->ota_url, sizeof(out->ota_url));
     p.end();
     return has_role;
 }
@@ -76,6 +85,10 @@ bool nvs_cfg_save(const cfg_t* in) {
     p.putUShort("beacon_s", in->beacon_s);
     p.putUShort("failsafe_s", in->failsafe_s);
     p.putString("name", in->name);
+    p.putBytes("crypto_key", in->crypto_key, 16);
+    p.putString("wifi_ssid", in->wifi_ssid);
+    p.putString("wifi_pass", in->wifi_pass);
+    p.putString("ota_url", in->ota_url);
     p.end();
     return true;
 }

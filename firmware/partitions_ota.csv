@@ -1,0 +1,8 @@
+# Name,   Type, SubType, Offset,  Size, Flags
+# EMlink OTA 双分区（4MB Flash）：双 app 各 1.5M + otadata 回滚
+# 方案：不加大的 spiffs（网页内嵌固件，无需 spiffs 存资源）
+nvs,      data, nvs,     0x9000,  0x5000,
+otadata,  data, ota,     0xe000,  0x2000,
+app0,     app,  ota_0,   0x10000, 0x180000,
+app1,     app,  ota_1,   0x190000,0x180000,
+coredump, data, coredump,0x310000,0x10000,

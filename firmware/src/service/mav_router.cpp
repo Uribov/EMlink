@@ -7,6 +7,7 @@
 #include "../link/frame_codec.h"
 #include "frag.h"
 #include "addr_map.h"
+#include "crypto.h"
 #include "../net/mesh.h"
 #include "../drivers/uart_fc.h"
 #include "../drivers/usb_cdc.h"
@@ -115,14 +116,14 @@ static void route_msg(const uint8_t* msg, size_t len, uint8_t source) {
 
     if (to_lora) {
         uint8_t qos = (msgid == MAV_MSGID_HEARTBEAT) ? QOS2 : QOS0;   // 心跳最高优先
-        // 大消息分片
-        if (len > FRAME_MAX_PAYLOAD) {
+        // 大消息分片（明文上限 175，加密后每片密文 179 正好塞满 payload 区）
+        if (len > FRAME_MAX_PLAIN) {
             frag_hdr_t hdr = {};
-            uint8_t pieces[4][FRAME_MAX_PAYLOAD];
+            uint8_t pieces[4][FRAME_MAX_PLAIN];
             size_t n = frag_split(msg, len, pieces, 4, &hdr);
             for (size_t i = 0; i < n; i++) {
-                size_t off  = i * FRAME_MAX_PAYLOAD;
-                size_t plen = (i == n - 1) ? (len - off) : FRAME_MAX_PAYLOAD;
+                size_t off  = i * FRAME_MAX_PLAIN;
+                size_t plen = (i == n - 1) ? (len - off) : FRAME_MAX_PLAIN;
                 frag_hdr_t h = hdr;
                 h.frag_index = (uint8_t)i;
 
@@ -132,6 +133,10 @@ static void route_msg(const uint8_t* msg, size_t len, uint8_t source) {
                 f.seq = g_mesh_seq++; f.ttl = g_ttl; f.orig_sysid = sysid;
                 memcpy(f.frag_hdr, &h, 4);
                 f.payload = pieces[i]; f.payload_len = plen;
+
+                // 加密（启用时原地改 payload 为密文）
+                uint8_t seal_buf[FRAME_MAX_PAYLOAD];
+                crypto_seal_frame(&f, seal_buf, sizeof(seal_buf));
 
                 uint8_t buf[FRAME_MTU];
                 size_t bn = frame_encode(&f, buf, sizeof(buf));

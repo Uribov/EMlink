@@ -6,7 +6,9 @@
 #include "../rtos.h"
 #include "route.h"
 #include "../link/mac.h"
+#include "../link/adr.h"
 #include "../service/nvs_cfg.h"
+#include "../service/crypto.h"
 
 // ---- 去重表 ----
 #define MESH_MAX_SRC 16
@@ -112,7 +114,7 @@ bool mesh_ingress(const frame_t* f) {
 // 本机发起发送：决定 relay_id（单播查下一跳，未知回退广播）
 bool mesh_send(uint8_t dst_id, uint8_t qos, bool ack_req,
                const uint8_t* payload, size_t len, uint8_t orig_sysid) {
-    if (!payload || len > FRAME_MAX_PAYLOAD) return false;
+    if (!payload || len > FRAME_MAX_PLAIN) return false;
 
     frame_t f = {};
     f.type       = FRAME_DATA;
@@ -140,6 +142,10 @@ bool mesh_send(uint8_t dst_id, uint8_t qos, bool ack_req,
         }
         // nh == dst_id：目标直连，relay 保持 0
     }
+
+    // 加密（启用时原地改 payload 为密文；seal_buf 覆盖到 frame_encode 拷贝完成）
+    uint8_t seal_buf[FRAME_MAX_PAYLOAD];
+    crypto_seal_frame(&f, seal_buf, sizeof(seal_buf));
 
     uint8_t buf[FRAME_MTU];
     size_t n = frame_encode(&f, buf, sizeof(buf));
@@ -212,10 +218,11 @@ static void mesh_task_func(void* arg) {
         // 去重（重复帧不处理不转发）
         if (!mesh_ingress(&f)) continue;
 
-        // BEACON：记录邻居链路质量，不投递不转发
+        // BEACON：记录邻居链路质量 + 对齐 ADR 周期，不投递不转发
         if (f.type == FRAME_BEACON) {
             route_learn(f.src_id, 0);
             route_update_rssi(f.src_id, item.rssi);
+            adr_on_beacon();
             continue;
         }
 
@@ -227,9 +234,18 @@ static void mesh_task_func(void* arg) {
         // 反向路径学习（广播帧：relay_id 即上一跳）
         if (f.dst_id == 0) route_learn(f.src_id, f.relay_id);
 
-        // 投递本机（dst 是自己或广播）
+        // 投递本机（dst 是自己或广播）；加密帧先解密，认证失败丢弃
         if (f.type == FRAME_DATA && (f.dst_id == 0 || f.dst_id == g_my_node_id)) {
-            if (g_rx_cb) g_rx_cb(&f, (float)item.rssi, (float)item.snr);
+            frame_t rx = f;
+            uint8_t plain[FRAME_MTU];
+            if (f.enc) {
+                size_t plen = crypto_open_frame(&f, plain, sizeof(plain));
+                if (plen == 0) { g_drop_crc++; continue; }   // 认证失败：坏帧，丢弃不转发
+                rx.payload     = plain;
+                rx.payload_len = plen;
+                rx.enc         = false;
+            }
+            if (g_rx_cb) g_rx_cb(&rx, (float)item.rssi, (float)item.snr);
         }
 
         // 转发判定

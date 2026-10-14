@@ -17,6 +17,7 @@ static Module* g_mod   = nullptr;
 static TaskHandle_t g_rf_task = nullptr;
 static float g_last_rssi = 0.0f;
 static float g_last_snr  = 0.0f;
+static bool  g_suspended = false;   // OTA 维护模式：WiFi 与 LoRa 二选一
 
 // DIO1 中断：只发任务通知给 rf_task，不在 ISR 里读 SPI
 static void IRAM_ATTR radio_isr() {
@@ -56,6 +57,7 @@ static uint8_t g_tx_fail = 0;
 
 int16_t radio_transmit(const uint8_t* data, size_t len, uint32_t timeout_ms) {
     (void)timeout_ms;
+    if (g_suspended) return -1;
 #if defined(RADIO_SX126X)
     if (!g_radio) return -1;
     int16_t st = g_radio->transmit(const_cast<uint8_t*>(data), len);
@@ -76,7 +78,7 @@ int16_t radio_transmit(const uint8_t* data, size_t len, uint32_t timeout_ms) {
 
 bool radio_startReceive() {
 #if defined(RADIO_SX126X)
-    if (!g_radio) return false;
+    if (g_suspended || !g_radio) return false;
     return g_radio->startReceive() == RADIOLIB_ERR_NONE;
 #else
     return false;
@@ -86,7 +88,7 @@ bool radio_startReceive() {
 int16_t radio_readPacket(uint8_t* buf, size_t maxlen, size_t* len,
                          float* rssi, float* snr) {
 #if defined(RADIO_SX126X)
-    if (!g_radio) return -1;
+    if (g_suspended || !g_radio) return -1;
     int16_t st = g_radio->readData(buf, maxlen);
     if (st != RADIOLIB_ERR_NONE) return st;
     size_t l = g_radio->getPacketLength();
@@ -104,7 +106,7 @@ int16_t radio_readPacket(uint8_t* buf, size_t maxlen, size_t* len,
 // CAD 侦听：0=空闲 1=忙 负=错误码
 int16_t radio_channelActivity() {
 #if defined(RADIO_SX126X)
-    if (!g_radio) return -1;
+    if (g_suspended || !g_radio) return -1;
     int16_t st = g_radio->startChannelScan();
     if (st != RADIOLIB_ERR_NONE) return st;
     int16_t res = g_radio->getChannelScanResult();
@@ -119,9 +121,37 @@ int16_t radio_channelActivity() {
 float radio_lastRssi() { return g_last_rssi; }
 float radio_lastSnr()  { return g_last_snr; }
 
+// 运行时切 SF（ADR 用）：先 standby 再改参数再回接收态
+bool radio_set_sf(uint8_t sf) {
+#if defined(RADIO_SX126X)
+    if (g_suspended || !g_radio) return false;
+    int16_t st = g_radio->standby();
+    if (st != RADIOLIB_ERR_NONE) return false;
+    st = g_radio->setSpreadingFactor(sf);
+    if (st != RADIOLIB_ERR_NONE) return false;
+    return g_radio->startReceive() == RADIOLIB_ERR_NONE;
+#else
+    return false;
+#endif
+}
+
 void radio_hardReset() {
 #if defined(RADIO_SX126X)
     if (g_radio) g_radio->reset();
+#endif
+}
+
+void radio_suspend() {
+#if defined(RADIO_SX126X)
+    g_suspended = true;
+    if (g_radio) g_radio->standby();   // 停收发，释放空口给 WiFi 维护
+#endif
+}
+
+void radio_resume() {
+#if defined(RADIO_SX126X)
+    g_suspended = false;
+    if (g_radio) g_radio->startReceive();
 #endif
 }
 

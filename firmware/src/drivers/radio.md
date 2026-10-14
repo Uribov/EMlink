@@ -23,7 +23,7 @@
 
 ## 对外接口
 见 `radio.h`。所有芯片实现同一组函数：
-`radio_init / radio_transmit / radio_startReceive / radio_readPacket / radio_channelActivity / radio_hardReset`
+`radio_init / radio_transmit / radio_startReceive / radio_readPacket / radio_channelActivity / radio_hardReset / radio_set_sf / radio_suspend / radio_resume`
 
 ## 验收（P0）
 - 两块板 `radio_init` 返回 true、无异常码
@@ -48,6 +48,8 @@ DIO1 上升沿中断 `radio_isr` → `vTaskNotifyGiveFromISR(g_rf_task)` → rf_
 4. 发送：`transmit(const_cast<uint8_t*>(data), len)`——RadioLib 签名非 const 但不改数据
 5. 收包：`readData(buf, maxlen)` 两参 + `getPacketLength()` 取实际长度（RadioLib 6.x）
 6. CAD：`startChannelScan()` + `getChannelScanResult()`（0=空闲 1=忙 负=错误）
+7. 运行时切 SF（`radio_set_sf`，ADR 用）：`standby() → setSpreadingFactor() → startReceive()`，**必须先 standby**（SX126x 芯片规定改调制参数不能在收发中途写寄存器）
+8. 暂停/恢复（`radio_suspend`/`radio_resume`，OTA 维护模式用）：suspend 设 `g_suspended=true` + standby，之后所有射频操作 no-op；resume 清标志 + startReceive
 
 ### 故障自救（架构 §8.2）
 - `radio_transmit` 连续 3 次失败 → `watchdog_rf_fault()`（软复位 NRST，累计 3 次整机重启）

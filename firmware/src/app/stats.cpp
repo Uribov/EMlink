@@ -80,7 +80,6 @@ void stats_update_led(led_role_t role, led_health_t health) {
     g_led->show();
 }
 
-static uint32_t g_last_beacon_ms = 0;
 static bool g_link_was_lost = false;
 
 static void stats_task_func(void* arg) {
@@ -89,13 +88,7 @@ static void stats_task_func(void* arg) {
         watchdog_feed();
         power_usb_present();   // 内部做 USB 插拔事件检测
 
-        // GCS 每 1s 广播 BEACON（邻居据此评估链路质量，架构 §5）
-        if (role_current() == ROLE_GCS) {
-            if (millis() - g_last_beacon_ms >= 1000) {
-                g_last_beacon_ms = millis();
-                mesh_send_beacon();
-            }
-        }
+        // BEACON 由 adr 模块统一发（mac_task 里 5s 周期），此处不再发
 
         // 失联判定（架构 §8.2：failsafe_s 秒无上行 → EV_LINK_LOST）
         bool link_lost = (millis() - mesh_last_rx_ms()) > g_failsafe_s * 1000;

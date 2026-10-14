@@ -27,6 +27,10 @@ struct cfg_t {
     uint16_t beacon_s;        // 1
     uint16_t failsafe_s;      // 3
     char     name[16];
+    uint8_t  crypto_key[16];  // AES-128 密钥（全 0 = 加密关闭）
+    char     wifi_ssid[32];   // WiFi AP 名（空 = 用 EMlink-<node_id>）
+    char     wifi_pass[32];   // WiFi AP 密码（空 = 无密码）
+    char     ota_url[96];     // 预留：将来从 URL 拉固件（当前网页上传，不用）
 };
 
 // 加载；无配置则写默认。返回 false = role 未设（应强制进 CLI）
