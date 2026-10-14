@@ -5,7 +5,7 @@
 **只支持 MAVLink 2**（STX=0xFD），不支持 v1。
 
 ## 依赖
-- MAVLink 2 官方 C 库（`mavlink/c_library_v2`，头文件库，git 引入，`#include <mavlink/common/mavlink.h>`）
+- MAVLink 2 官方 C 库（本地化到 `lib/mavlink2/`，头文件库，`#include <common/mavlink.h>`）
 - `frag.h`（超长消息拆片）、`addr_map.h`（sysid↔node 映射）
 
 ## MAVLink 2 帧（供解析）

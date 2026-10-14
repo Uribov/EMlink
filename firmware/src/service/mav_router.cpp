@@ -1,6 +1,6 @@
 // ============================================================
 // mav_router.cpp —— MAVLink 2 解析、按 target_sysid 分发、心跳优先
-// 只支持 MAVLink 2（STX=0xFD）。依赖 mavlink c_library_v2、frag、addr_map。
+// 只支持 MAVLink 2（STX=0xFD）。依赖 mavlink 库（lib/mavlink2）、frag、addr_map。
 // ============================================================
 #include "mav_router.h"
 #include "../rtos.h"
@@ -11,7 +11,7 @@
 #include "../drivers/uart_fc.h"
 #include "../drivers/usb_cdc.h"
 #include "../service/nvs_cfg.h"
-#include <common/mavlink.h>      // mavlink c_library_v2
+#include <common/mavlink.h>      // lib/mavlink2
 
 // 来源
 enum { SRC_UART = 0, SRC_USB = 1, SRC_MESH = 2 };

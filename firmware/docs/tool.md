@@ -30,14 +30,14 @@
 |---|---|---|
 | jgromes/RadioLib | ^6.6.0 | LoRa 射频驱动（SX126x/LLCC68） |
 | adafruit/Adafruit NeoPixel | ^1.12.0 | WS2818 RGB LED |
-| mavlink/c_library_v2 | git | MAVLink 2 协议头文件 |
+| lib/mavlink2 | 本地 | MAVLink 2 协议头文件（手动下载解压） |
 
 > ⚠️ **mavlink 用 git 拉 GitHub**：校园网/受限网络连不上 GitHub 时，编译会卡在这一步（`UserSideException: Please install Git client`，或 clone 超时）。解决：
 > - **方法 A（推荐）**：给 git 配国内加速，之后所有 GitHub clone 自动走代理：
 >   ```
 >   git config --global url."https://ghproxy.com/https://github.com/".insteadOf "https://github.com/"
 >   ```
-> - **方法 B**：手动下载 `c_library_v2` 解压到 `firmware/lib/`，并从 `platformio.ini` 删掉 mavlink 的 git 依赖行。
+> - **方法 B**：手动下载 `c_library_v2` 解压到 `firmware/lib/mavlink2/`，并从 `platformio.ini` 删掉 mavlink 的 git 依赖行。
 
 > 依赖下载到项目内 `.pio/libdeps/<env>/`，编译产物在 `.pio/build/<env>/firmware.bin`。
 

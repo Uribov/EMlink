@@ -1,5 +1,6 @@
 # PlatformIO 编译产物
 .pio/
+compile_commands.json
 
 # 编辑器/系统
 .vscode/
