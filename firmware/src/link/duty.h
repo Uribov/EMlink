@@ -1,0 +1,15 @@
+#pragma once
+// ============================================================
+// duty —— 占空比限流：限制每节点每秒空中发射时间
+// 依赖：无；约定见架构 §5「占空比限制」
+// ============================================================
+#include <Arduino.h>
+
+// 每周期(1s)允许的最大空中时间 ms（10% 占空比，可被 NVS 覆盖）
+#define DUTY_MAX_MS_PER_SEC   100
+
+// 申请发射时长 airtime_ms；true=放行，false=超限需等待（mac 层排队）
+bool duty_reserve(uint32_t airtime_ms);
+
+// 更新上限
+void duty_set_max(uint32_t ms_per_sec);

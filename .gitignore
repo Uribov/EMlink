@@ -1,0 +1,6 @@
+# PlatformIO 编译产物
+.pio/
+
+# 编辑器/系统
+.vscode/
+*.swp

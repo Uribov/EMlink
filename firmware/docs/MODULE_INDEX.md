@@ -1,0 +1,89 @@
+# 模块索引 —— 大模型接入入口
+
+> 总架构：`../../mesh_firmware_architecture.md`。本索引给大模型/开发者全局视图。
+
+## 1. 模块清单（21 个，按层；含 3 个预留）
+
+| 层 | 模块 | 一句话职责 |
+|---|---|---|
+| drivers | radio | 射频收发/CAD/复位（抽象接口，SX126x 等按宏实现） |
+| drivers | uart_fc | 飞控 UART（DMA 环形缓冲） |
+| drivers | usb_cdc | 双 CDC：MAVLink + CLI |
+| drivers | power_detect | USB 插入检测 |
+| link | frame_codec | 帧编解码 + CRC（纯逻辑） |
+| link | mac | LBT + ACK 重传 |
+| link | duty | 占空比限流 |
+| link | adr | 自适应速率（**预留**，§13.3） |
+| net | mesh | 泛洪转发 + 去重 + TTL |
+| net | route | 反向路径 + 路由表预留 |
+| service | mav_router | MAVLink 解析 + sysid 路由 |
+| service | frag | 大包分片重组 |
+| service | addr_map | sysid↔node 对照表 |
+| service | nvs_cfg | 配置持久化 |
+| service | watchdog | 看门狗 + 射频自救 |
+| service | crypto | 帧载荷加密（**预留**，§13.1） |
+| service | ota | OTA 固件升级（**预留**，§13.2） |
+| app | role | 角色数据通路 |
+| app | cli | 命令行 |
+| app | stats | 统计 + LED + 喂狗 |
+| app | failsafe_policy | 故障安全 + 电源状态机 |
+
+## 2. 依赖关系（谁依赖谁）
+
+```
+app:     role ─┬─ nvs_cfg, uart_fc, usb_cdc, mesh, mav_router
+         cli ─┬─ usb_cdc, nvs_cfg, stats
+         stats ─┬─ (各模块计数), watchdog
+         failsafe_policy ─┬─ power_detect, mav_router, nvs_cfg
+service: mav_router ─┬─ frag, addr_map, mesh
+         frag ─┬─ frame_codec
+         addr_map (无)
+         nvs_cfg (Preferences)
+         watchdog ─┬─ radio
+         crypto ─┬─ frame_codec (预留)
+         ota ─┬─ frag (预留)
+net:     mesh ─┬─ frame_codec, route
+         route (无)
+link:    mac ─┬─ radio, frame_codec, duty
+         frame_codec (无，纯逻辑)
+         duty (无)
+         adr ─┬─ radio (预留)
+drivers: radio ─┬─ RadioLib, pinmap
+         uart_fc / usb_cdc / power_detect ─┬─ pinmap
+```
+
+## 3. 建议实现顺序（自底向上，对齐架构 §11）
+
+| 阶段 | 模块（按序） | 验收锚点 |
+|---|---|---|
+| **P0** | pinmap → nvs_cfg → radio → uart_fc → usb_cdc → power_detect → role → cli → stats → watchdog | 10m 互发互收 |
+| **P1** | frame_codec → duty → mac | 500m 视距 0 丢包 |
+| **P2** | route → mesh | 3 节点无死循环 |
+| **P3** | addr_map → frag → mav_router | 2 机 + 航点 + 遥测 |
+| **P4** | failsafe_policy | 断链 3s 返航 |
+
+**预留模块（不在 P0~P4，见架构 §13）**：crypto / ota / adr 当前只有 `.h` 占位 + `.md` 说明，不生成 `.cpp`。
+
+## 4. 给大模型的固定提示词模板
+
+```
+读 mesh数传/firmware/src/<层>/<模块>.md 和 <模块>.h，
+以及 mesh数传/mesh_firmware_architecture.md（相关章节见 .md 里的引用）。
+按 .h 声明的接口实现 <模块>.cpp，严格按架构文档的约定，
+只实现本模块，不改其他文件，不引入未声明的依赖。
+```
+
+## 5. 全局约定速查（写代码前必读）
+
+| 主题 | 架构文档章节 |
+|---|---|
+| 引脚/接口/RadioLib 配置 | §0 |
+| 任务/核/优先级/队列/事件 | §3（任务函数模块 static）+ `src/rtos.h`（参数/队列/事件） |
+| 帧格式/地址/去重/TTL/路由 | §4 |
+| MAC/信道接入 | §5 |
+| 分片重组 | §6 |
+| sysid 路由 | §7 |
+| QoS/故障安全 | §8 |
+| NVS/CLI | §9 |
+| 统计/日志 | §10 |
+| 预留扩展点（加密/OTA/ADR） | §13 |
