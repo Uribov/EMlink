@@ -15,7 +15,7 @@
 4. 波特率从 NVS `uart_baud` 读，默认 115200
 
 ## 对外接口
-见 `uart_fc.h`。
+见 `uart_fc.h`。要点：`uart_fc_init / uart_fc_start / uart_fc_write` + `uart_fc_drop_count()`（上行队列满丢弃计数，P1-10）。
 
 ## 验收（P0）
 - 飞控串口回环：自发自收无丢字节；波特率 115200 长时间跑无溢出

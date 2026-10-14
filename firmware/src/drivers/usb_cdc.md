@@ -15,7 +15,7 @@ ESP32-S3 原生 USB-OTG 拆成两个 CDC：**CDC0 走 MAVLink（QGC）**，**CDC
 2. 本模块封装 `Serial`/`Serial1`，上层（`usb_task`）只认 `usb_mav_*`/`usb_cli_*`
 
 ## 对外接口
-见 `usb_cdc.h`。
+见 `usb_cdc.h`。要点：`usb_cdc_init / usb_cdc_start / usb_mav_write / usb_cli_write` + `usb_cdc_drop_count()`（下行队列满丢弃计数，P1-10）。
 
 ## 验收（P0）
 - 插 USB 设备管理器出现两个 COM；CDC0 透传 MAVLink，CDC1 能敲命令回显

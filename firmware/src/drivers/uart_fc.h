@@ -20,3 +20,6 @@ size_t uart_fc_write(const uint8_t* buf, size_t len);
 
 // 启动飞控 UART 任务（内部 xTaskCreate uart_task_func，任务函数为模块内 static）
 void uart_fc_start(void);
+
+// 飞控上行队列满丢弃数（P1-10）
+uint32_t uart_fc_drop_count(void);

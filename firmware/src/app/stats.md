@@ -13,8 +13,9 @@
 | 链路 | tx_frames rx_frames ack_ok ack_miss retries |
 | 网络 | fwd dropped_ttl dropped_dup dropped_crc |
 | 分片 | reasm_timeout |
-| 空口 | rssi snr link_quality% |
+| 空口 | rssi snr **link_quality%**（P1-10：= ACK 成功率 `100*ack_ok/(ack_ok+ack_miss)`，还没有 ACK 样本时为 0；原为恒 0 的占位） |
 | 系统 | heap_free wdt_resets rf_reinit |
+| 丢弃分层 | P1-10 新增，CLI `status` 显示（未进 `stats_t`）：收包队列 `radio_rx_drop` / 射频请求 `radio_req_drop` / 发送队列 `rtos_tx_drop` / UART `uart_fc_drop` / USB `usb_cdc_drop` / 流控 `ratelimit_drop` |
 
 ## LED 状态（WS2818 RGB @ GPIO48）
 - 编码原则：**颜色 = 身份（角色），节奏 = 健康（链路）**；硬件故障整灯红覆盖角色色

@@ -17,6 +17,11 @@ EventGroupHandle_t evg    = nullptr;
 
 static bool rtos_inited = false;
 
+static uint32_t g_tx_drop = 0;
+
+void rtos_tx_drop_note(void) { g_tx_drop++; }
+uint32_t rtos_tx_drop_count(void) { return g_tx_drop; }
+
 void rtos_comms_init() {
     if (rtos_inited) return;
     rtos_inited = true;

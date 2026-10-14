@@ -99,12 +99,18 @@ extern QueueHandle_t q_usb_rx;
 extern QueueHandle_t q_uart_tx;
 extern QueueHandle_t q_usb_tx;
 
+// 发送队列满导致的丢弃（P1-10：原来静默丢，无计数）
+void     rtos_tx_drop_note(void);
+uint32_t rtos_tx_drop_count(void);
+
 // ---- 按 QoS 投递发送队列（供 mesh/mav_router 统一调用）----
 static inline bool rtos_tx_enqueue(const queue_item_t* item) {
     if (!item) return false;
-    if (item->qos >= QOS2) return xQueueSend(q_mac_tx_hi, item, 0) == pdTRUE;
-    if (item->qos == QOS1) return xQueueSend(q_mac_tx_med, item, 0) == pdTRUE;
-    return xQueueSend(q_mac_tx_lo, item, 0) == pdTRUE;
+    bool ok = (item->qos >= QOS2) ? (xQueueSend(q_mac_tx_hi,  item, 0) == pdTRUE)
+            : (item->qos == QOS1) ? (xQueueSend(q_mac_tx_med, item, 0) == pdTRUE)
+                                  : (xQueueSend(q_mac_tx_lo,  item, 0) == pdTRUE);
+    if (!ok) rtos_tx_drop_note();
+    return ok;
 }
 
 // ============================================================

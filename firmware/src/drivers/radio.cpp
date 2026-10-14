@@ -19,6 +19,8 @@ static TaskHandle_t g_rf_task = nullptr;
 static float g_last_rssi = 0.0f;
 static float g_last_snr  = 0.0f;
 static bool  g_suspended = false;   // OTA 维护模式：WiFi 与 LoRa 二选一
+static uint32_t g_rx_drop = 0;      // 收包队列满丢弃（P1-10）
+static uint32_t g_req_drop = 0;     // 射频请求队列满丢弃（P1-10）
 
 // 当前调制参数（CAD 超时推导用；radio_init 设定、radio_set_sf 更新）
 static uint8_t g_cur_sf = LORA_DEF_SF;
@@ -241,7 +243,10 @@ static int16_t radio_call(uint8_t op, uint8_t sf, const uint8_t* data, size_t le
 
     (void)ulTaskNotifyTake(pdTRUE, 0);                 // 清残留通知，防误判完成
     QueueHandle_t q = hi ? g_req_hi : g_req_lo;
-    if (xQueueSend(q, &req, pdMS_TO_TICKS(100)) != pdTRUE) return -1;   // 队列满：快速失败
+    if (xQueueSend(q, &req, pdMS_TO_TICKS(100)) != pdTRUE) {
+        g_req_drop++;   // 请求队列满：快速失败（P1-10 加计数）
+        return -1;
+    }
     xTaskNotifyGive(g_radio_owner);                    // 唤醒所有者（与 DIO1 通知共用，多一次无害）
     (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);     // 等所有者执行完（WDT 是兜底）
     return req.result;
@@ -346,7 +351,7 @@ static void rf_task_func(void* arg) {
             item.rssi = (int16_t)rssi;
             item.snr  = (int16_t)snr;
             if (xQueueSend(q_rf_rx, &item, 0) != pdTRUE) {
-                // 队列满：丢弃（mesh 层会因缺帧自然丢包）
+                g_rx_drop++;   // 队列满：丢弃（P1-10 加计数，原来完全静默）
             }
         }
         radio_startReceive();
@@ -361,3 +366,6 @@ void radio_start(void) {
                             nullptr, RF_TASK_PRIO, &g_rf_task, RF_TASK_CORE);
     g_radio_owner = g_rf_task;   // 从此刻起：射频单所有者 = rf_task
 }
+
+uint32_t radio_rx_drop_count(void)  { return g_rx_drop; }
+uint32_t radio_req_drop_count(void) { return g_req_drop; }

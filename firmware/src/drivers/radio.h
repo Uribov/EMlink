@@ -69,3 +69,6 @@ void radio_resume();
 
 // 启动射频任务（内部 xTaskCreate rf_task_func，任务函数为模块内 static）
 void radio_start(void);
+
+uint32_t radio_rx_drop_count(void);    // 收包队列满丢弃数（P1-10）
+uint32_t radio_req_drop_count(void);   // 射频请求队列满丢弃数（P1-10）

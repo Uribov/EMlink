@@ -376,8 +376,9 @@ mavlink monitor on      （旁路观察 MAVLink，预留）
 |---|---|
 | 链路 | `tx_frames` `rx_frames` `ack_ok` `ack_miss` `retries` |
 | 网络 | `fwd` `dropped_ttl` `dropped_dup` `reasm_timeout` |
-| 空口 | `rssi` `snr` `link_quality%` |
+| 空口 | `rssi` `snr` `link_quality%`（P1-10：= ACK 成功率，原为恒 0 占位） |
 | 系统 | `heap_free` `wdt_resets` `rf_reinit` |
+| 丢弃分层（P1-10，CLI `status` 显示） | `radio_rx_drop` / `radio_req_drop` / `rtos_tx_drop` / `uart_fc_drop` / `usb_cdc_drop` / `ratelimit_drop`（哪一层丢的，一眼可见——原实现全部静默丢） |
 | 路由 | 邻居表（node_id、rssi、last_seen） |
 
 ### 10.2 日志与状态

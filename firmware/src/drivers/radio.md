@@ -26,7 +26,7 @@
 
 ## 对外接口
 见 `radio.h`。所有芯片实现同一组函数：
-`radio_init / radio_transmit / radio_transmit_prio（高优先发送，ACK 用） / radio_startReceive / radio_readPacket / radio_channelActivity / radio_airtime_ms / radio_hardReset / radio_set_sf / radio_suspend / radio_resume / radio_is_ready`
+`radio_init / radio_transmit / radio_transmit_prio（高优先发送，ACK 用） / radio_startReceive / radio_readPacket / radio_channelActivity / radio_airtime_ms / radio_hardReset / radio_set_sf / radio_suspend / radio_resume / radio_is_ready / radio_rx_drop_count / radio_req_drop_count`（后两个是 P1-10 丢弃计数）
 契约（P0-2）：以上接口内部为"请求队列 + 阻塞等结果"——**调用它们的任务不得把任务通知（task notification）用于其它用途**。
 
 - `radio_transmit(data, len)` **不带超时参数**（P1-2）：RadioLib 的 `transmit` 第三参是 `addr` 不是超时，传超时值会被静默忽略；发送超时由 RadioLib 内部按 5×ToA 自管。

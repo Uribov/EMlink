@@ -6,6 +6,7 @@
 #include "../rtos.h"
 #include "../drivers/usb_cdc.h"
 #include "../drivers/radio.h"
+#include "../drivers/uart_fc.h"
 #include "../net/mesh.h"
 #include "../net/route.h"
 #include "../service/nvs_cfg.h"
@@ -154,6 +155,11 @@ void cli_handle_line(const char* line) {
                  (unsigned)adr_beacon_count(), (unsigned)adr_beacon_hop_count(),
                  (unsigned)adr_desync_count(), (unsigned)adr_multi_anchor_count(),
                  (unsigned)adr_current_sf());
+        cli_print(line);
+        snprintf(line, sizeof(line), "丢包: 收包队列=%u 射频请求=%u 发送队列=%u UART=%u USB=%u\r\n",
+                 (unsigned)radio_rx_drop_count(), (unsigned)radio_req_drop_count(),
+                 (unsigned)rtos_tx_drop_count(), (unsigned)uart_fc_drop_count(),
+                 (unsigned)usb_cdc_drop_count());
         cli_print(line);
     } else if (strcmp(cmd, "stats") == 0) {
         stats_t s;

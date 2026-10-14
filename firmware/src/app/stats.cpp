@@ -48,7 +48,9 @@ void stats_collect(stats_t* out) {
     out->heap_free    = ESP.getFreeHeap();
     out->wdt_resets   = watchdog_wdt_resets();
     out->rf_reinit    = watchdog_rf_reinits();
-    out->link_quality_pct = 0;
+    // 链路质量 = 发出去的帧里拿到 ACK 的比例（P1-10；原为恒 0 的占位）
+    uint32_t ack_total = out->ack_ok + out->ack_miss;
+    out->link_quality_pct = ack_total ? (uint8_t)(100u * out->ack_ok / ack_total) : 0;
 }
 
 void stats_print(const stats_t* s) {

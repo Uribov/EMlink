@@ -19,3 +19,6 @@ size_t usb_cli_write(const uint8_t* buf, size_t len);
 
 // 启动 USB CDC 任务（内部 xTaskCreate usb_task_func，任务函数为模块内 static）
 void usb_cdc_start(void);
+
+// 地面站下行队列满丢弃数（P1-10）
+uint32_t usb_cdc_drop_count(void);

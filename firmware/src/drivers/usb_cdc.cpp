@@ -7,6 +7,7 @@
 #include "../rtos.h"
 
 static TaskHandle_t g_usb_task = nullptr;
+static uint32_t g_rx_drop = 0;   // 队列满丢弃（P1-10）
 
 void usb_cdc_init() {
     // Serial/Serial1 由 Arduino 框架按 CDC-on-boot 自动初始化，无需手动 begin
@@ -34,7 +35,7 @@ static void usb_task_func(void* arg) {
             queue_item_t item = {};
             memcpy(item.data, rx, n);
             item.len = (uint16_t)n;
-            xQueueSend(q_usb_rx, &item, 0);
+            if (xQueueSend(q_usb_rx, &item, 0) != pdTRUE) g_rx_drop++;   // 队列满丢弃（P1-10）
         }
         // 发：q_usb_tx -> CDC0（mav_router 生产）
         queue_item_t tx;
@@ -49,3 +50,5 @@ void usb_cdc_start(void) {
     xTaskCreatePinnedToCore(usb_task_func, "usb", USB_TASK_STACK,
                             nullptr, USB_TASK_PRIO, &g_usb_task, USB_TASK_CORE);
 }
+
+uint32_t usb_cdc_drop_count(void) { return g_rx_drop; }

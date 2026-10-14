@@ -6,6 +6,7 @@
 #include "../rtos.h"
 
 static TaskHandle_t g_uart_task = nullptr;
+static uint32_t g_rx_drop = 0;   // 队列满丢弃（P1-10）
 
 void uart_fc_init(uint32_t baud) {
     Serial0.begin(baud, SERIAL_8N1, PIN_FC_RX, PIN_FC_TX);
@@ -37,7 +38,7 @@ static void uart_task_func(void* arg) {
             queue_item_t item = {};
             memcpy(item.data, rx, n);
             item.len = (uint16_t)n;
-            xQueueSend(q_uart_rx, &item, 0);
+            if (xQueueSend(q_uart_rx, &item, 0) != pdTRUE) g_rx_drop++;   // 队列满丢弃（P1-10）
         }
         // 发：q_uart_tx -> 飞控（mav_router 生产）
         queue_item_t tx;
@@ -52,3 +53,5 @@ void uart_fc_start(void) {
     xTaskCreatePinnedToCore(uart_task_func, "uart", UART_TASK_STACK,
                             nullptr, UART_TASK_PRIO, &g_uart_task, UART_TASK_CORE);
 }
+
+uint32_t uart_fc_drop_count(void) { return g_rx_drop; }
