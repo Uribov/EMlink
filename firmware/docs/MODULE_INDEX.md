@@ -2,7 +2,7 @@
 
 > 总架构：`../../mesh_firmware_architecture.md`。本索引给大模型/开发者全局视图。
 
-## 1. 模块清单（21 个，按层；含 3 个预留）
+## 1. 模块清单（21 个，按层）
 
 | 层 | 模块 | 一句话职责 |
 |---|---|---|
@@ -32,19 +32,19 @@
 
 ```
 app:     role ─┬─ nvs_cfg, uart_fc, usb_cdc, mesh, mav_router
-         cli ─┬─ usb_cdc, nvs_cfg, stats
+         cli ─┬─ usb_cdc, nvs_cfg, crypto, ota, stats
          stats ─┬─ (各模块计数), watchdog
          failsafe_policy ─┬─ power_detect, mav_router, nvs_cfg
-service: mav_router ─┬─ frag, addr_map, mesh
+service: mav_router ─┬─ frag, addr_map, mesh, crypto
          frag ─┬─ frame_codec
          addr_map (无)
          nvs_cfg (Preferences)
          watchdog ─┬─ radio
          crypto ─┬─ frame_codec, nvs_cfg
          ota ─┬─ nvs_cfg, crypto, radio
-net:     mesh ─┬─ frame_codec, route
+net:     mesh ─┬─ frame_codec, route, adr, crypto
          route (无)
-link:    mac ─┬─ radio, frame_codec, duty
+link:    mac ─┬─ radio, frame_codec, duty, adr
          frame_codec (无，纯逻辑)
          duty (无)
          adr ─┬─ radio, mesh, role
@@ -62,7 +62,7 @@ drivers: radio ─┬─ RadioLib, pinmap
 | **P3** | addr_map → frag → mav_router | 2 机 + 航点 + 遥测 |
 | **P4** | failsafe_policy | 断链 3s 返航 |
 
-**预留模块（不在 P0~P4，见架构 §13）**：crypto / adr / ota 三个已全部实现（P4 后补做），无剩余预留模块。
+**扩展模块（不在 P0~P4 主线，见架构 §13）**：crypto / adr / ota 三个已全部实现（P4 后补做）。
 
 ## 4. 给大模型的固定提示词模板
 
@@ -86,4 +86,4 @@ drivers: radio ─┬─ RadioLib, pinmap
 | QoS/故障安全 | §8 |
 | NVS/CLI | §9 |
 | 统计/日志 | §10 |
-| 预留扩展点（加密/OTA/ADR） | §13 |
+| 预留扩展点 / 已实现扩展模块 | §13（crypto/ota/adr 已实现）、§14（未来展望） |

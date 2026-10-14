@@ -17,10 +17,11 @@
 | 3 | `dst_id` | 1 | 目的节点地址，0=广播 |
 | 4–5 | `seq` | 2 | 源序号（小端，回绕） |
 | 6 | `ttl` | 1 | 剩余跳数 |
-| 7 | `orig_sysid` | 1 | 源 MAVLink sysid |
-| 8 | `net_id` | 1 | 网络 ID（多网共存，0=默认网） |
-| 9–12 | `frag_hdr` | 4 | 分片头（§frag），非分片填 0 |
-| 13–192 | `payload` | ≤180 | 数据 |
+| 7 | `relay_id` | 1 | 广播帧=上一跳转发者；单播帧=下一跳；源发=0 |
+| 8 | `orig_sysid` | 1 | 源 MAVLink sysid |
+| 9 | `net_id` | 1 | 网络 ID（多网共存，0=默认网） |
+| 10–13 | `frag_hdr` | 4 | 分片头（§frag），非分片填 0 |
+| 14–192 | `payload` | ≤179 | 数据（加密帧含 4B tag，明文上限 175） |
 | 193–194 | `crc16` | 2 | CRC16-CCITT（header+payload） |
 
 ## 协议类型（proto，flags[3:2]）
@@ -40,9 +41,9 @@
 见 `frame_codec.h`。
 
 ## 验收（可在 PC 单测）
-- 编解码往返：任意 payload 长度 0~180 无损还原
+- 编解码往返：任意 payload 长度 0~179 无损还原
 - CRC 篡改 1 字节 → `frame_decode` 返回 false
-- `seq=0x0102` 编出字节 `02 01`；`proto`/`net_id` 正确读写
+- `seq=0x0102` 编出字节 `02 01`；`proto`/`net_id`/`enc` 正确读写
 
 ## 当前实现架构（已实现，供子 agent 分析）
 
@@ -50,7 +51,7 @@
 | 偏移 | 字段 |
 |---|---|
 | 0 | ver:type（ver=1 高4b，type 低4b） |
-| 1 | flags（qos[7:6] ack_req[5] frag[4] proto[3:2]） |
+| 1 | flags（qos[7:6] ack_req[5] frag[4] proto[3:2] enc[0]） |
 | 2 | src_id |
 | 3 | dst_id（0=广播） |
 | 4-5 | seq（小端） |
@@ -59,7 +60,7 @@
 | 8 | orig_sysid |
 | 9 | net_id |
 | 10-13 | frag_hdr[4] |
-| 14.. | payload（≤179） |
+| 14.. | payload（≤179，加密帧含 4B tag） |
 | 末2字节 | crc16 |
 
 ### 常量

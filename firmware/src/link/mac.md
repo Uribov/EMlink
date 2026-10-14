@@ -6,6 +6,7 @@
 ## 依赖
 - `radio.h`（`radio_channelActivity` 做 CAD，`radio_transmit` 发包）
 - `frame_codec.h`（解析 `ack_req` / `src_id` / `seq`）
+- `adr.h`（mac_task 循环顶部调 `adr_tick` 切 SF）
 - 被 `mesh`（转发）、`mav_router`（业务帧）调用
 
 ## 发送流程（`mac_send`）
@@ -49,7 +50,7 @@
 - ACK 等待用轮询标志而非任务通知（mac_send 可能被 mesh_task 同步调用，避免通知绑定错误任务）
 
 ### mac_task（core0 prio 20）
-按 hi→med→lo 读 3 个优先级队列（hi/med 非阻塞，lo 5ms 超时），逐帧 mac_send
+循环顶部先调 `adr_tick()`（ADR 周期切 SF，与收发同任务串行不冲突），再按 hi→med→lo 读 3 个优先级队列（hi/med 非阻塞，lo 5ms 超时），逐帧 mac_send
 
 ### 优先级队列
 `rtos_tx_enqueue()` 按 qos 投 `q_mac_tx_hi/med/lo`（rtos.h 定义，rtos.cpp 建队列）——QOS2 控制指令真正优先

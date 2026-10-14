@@ -8,6 +8,7 @@
 ```
 firmware/
   platformio.ini          # 多方案配置（每个 [env] = 一块板 + 一个射频）
+  partitions_ota.csv      # OTA 双分区表（app0/app1 各 1.5M + otadata 回滚）
   scripts/build_all.sh    # 批量编译所有方案（Linux）
   lib/                    # 本地依赖库：mavlink2 + radiolib + neopixel（全离线）
   docs/
@@ -22,9 +23,9 @@ firmware/
     boards/               # 板级引脚（每块 MCU 板一个 .h）
     radios/               # 射频引脚（每个射频模块一个 .h）
     drivers/              # 驱动层：radio / uart_fc / usb_cdc / power_detect
-    link/                 # 链路层：frame_codec / mac / duty / adr(预留)
+    link/                 # 链路层：frame_codec / mac / duty / adr
     net/                  # 网络层：mesh / route
-    service/              # 服务层：mav_router / frag / addr_map / nvs_cfg / watchdog / crypto(预留) / ota(预留)
+    service/              # 服务层：mav_router / frag / addr_map / nvs_cfg / watchdog / crypto / ota
     app/                  # 应用层：role / cli / stats / failsafe_policy
 ```
 
@@ -68,11 +69,11 @@ firmware/
 
 | 阶段 | 状态 |
 |---|---|
-| P0~P4 代码（18 模块） | 全实现 + 编译通过，待硬件 bring-up |
-| 文档 | 18 模块 .md 均「约束 + 实现架构」双结构 |
+| 21 模块（含 crypto / adr / ota 三扩展模块） | 全实现 + 编译通过，待硬件 bring-up |
+| 文档 | 21 模块 .md 均「约束 + 实现架构」双结构 |
 
-## 6. 上板前唯一待确认（非阻塞）
+## 6. 上板前注意事项
 
-`platformio.ini` 里 `board = esp32-s3-devkitc-1` 是通用 ESP32-S3 配置。
-若烧录报错 / 串口不对 / Flash 大小不匹配，按你板子实际改 board 与 `board_build.flash_size`。
-引脚映射已在 `pinmap.h` 填全（LoRa SPI + 飞控 UART0 + WS2818 LED）。
+1. **⚠️ 首次烧录必须整片擦除**：分区表已从 `default.csv`（单 app+spiffs）改成 `partitions_ota.csv`（双 app OTA），旧分区数据与新布局对不上，直接烧会起不来。首次用整片擦除：`pio run -t erase` 后再 `pio run -t upload`（或烧录时勾 "Erase Flash"）。之后正常 OTA 升级不用再擦。
+2. `platformio.ini` 里 `board = esp32s3-devkitc-1` 是通用 ESP32-S3 配置。若烧录报错 / 串口不对 / Flash 大小不匹配，按你板子实际改 board 与 `board_build.flash_size`。
+3. 引脚映射已在 `pinmap.h` 填全（LoRa SPI + 飞控 UART0 + WS2818 LED）。
