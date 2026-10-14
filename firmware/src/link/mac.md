@@ -46,7 +46,7 @@
 4. 若 ack_req：轮询等 ACK（5ms 步进，**轮询内每次 `watchdog_feed()`**——多次重传累计可能超过 5s WDT 超时），超时退避 100→300→700ms 重传，最多 g_retries 次
 
 ### ACK 机制（跨模块，经 mesh_task）
-- mesh_task 收 ack_req 数据帧 → `mac_send_ack(src_id, seq)`（echo seq，ack_req=0 防风暴）
+- mesh_task 收 ack_req 数据帧 → `mac_send_ack(src_id, seq)`（echo seq，ack_req=0 防风暴）→ 发送走 **`radio_transmit_prio()`**（P0-2：射频单所有者的高优先请求队列）——原因见下：ACK 必须抢在排队的数据帧之前
 - mesh_task 收 ACK 帧 → `mac_on_ack_rx()`（匹配 g_wait_seq 则置 g_ack_arrived）
 - ACK 等待用轮询标志而非任务通知（mac_send 可能被 mesh_task 同步调用，避免通知绑定错误任务）
 

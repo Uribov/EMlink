@@ -3,6 +3,7 @@
 ## 职责
 向上层（mac/mesh）提供统一射频接口：发送 / 接收 / CAD 侦听 / 复位。
 上层**不直接碰 RadioLib 或具体芯片**，全部经本接口。
+**射频单所有者（P0-2）**：所有芯片操作只在 `rf_task` 上下文执行；上层调用 `radio_*` 时，内部自动变成"请求队列 + 阻塞等结果"，调用方无需感知。
 
 ## 多芯片实现方式
 - 本文件是「抽象接口」，具体芯片在 `radio.cpp` 里按芯片类型宏分叉：
@@ -23,7 +24,8 @@
 
 ## 对外接口
 见 `radio.h`。所有芯片实现同一组函数：
-`radio_init / radio_transmit / radio_startReceive / radio_readPacket / radio_channelActivity / radio_hardReset / radio_set_sf / radio_suspend / radio_resume / radio_is_ready`
+`radio_init / radio_transmit / radio_transmit_prio（高优先发送，ACK 用） / radio_startReceive / radio_readPacket / radio_channelActivity / radio_hardReset / radio_set_sf / radio_suspend / radio_resume / radio_is_ready`
+契约（P0-2）：以上接口内部为"请求队列 + 阻塞等结果"——**调用它们的任务不得把任务通知（task notification）用于其它用途**。
 
 ## 验收（P0）
 - 两块板 `radio_init` 返回 true、无异常码
@@ -38,6 +40,16 @@
 - `g_tx_fail`：连续发送失败计数（自救触发用）
 - `g_radio_ready`（P0-4）：就绪状态（init 成功且未被撤下）；**未就绪时所有射频操作短路返回，不碰 SPI**
 - `g_init_*`（P0-4）：init 参数快照（freq/bw/sf/cr/sync/pwr），失败后周期重试用它重新 `begin()`
+
+### 单所有者与请求队列（P0-2）
+- `g_radio_owner` = `rf_task`；`radio_start()` **先建两个请求队列、再创建任务**，然后把 owner 标为 rf_task（避免启动期 `adr_init` 走"无所有者→直接执行"路径）
+- 请求模型（radio.cpp 内 static，不进头文件）：`radio_req_t{op, sf, len, result, waiter, data[FRAME_MTU]}`；队列元素是**指针**——请求结构放在调用者栈上，调用者阻塞到执行完成，生命周期安全
+- 公开接口 → `radio_call(op, sf, data, len, hi)`：
+  - `owner == nullptr`（启动早期）或 `owner == 自己`（rf_task / 周期重试 / 射频自救路径）→ `radio_exec_inline()` **直接执行**（因此 `watchdog_rf_fault → radio_hardReset` 在所有者内不会自投自收死锁）
+  - 否则 → 清残留通知 → 投 `q_radio_hi`（控制操作 / ACK / 控制帧）或 `q_radio_lo`（普通数据帧）→ `xTaskNotifyGive(owner)` 唤醒 → `ulTaskNotifyTake(portMAX_DELAY)` 等结果（WDT 兜底）
+- `rf_task` 每轮：喂狗 → `radio_retry_tick()` → **先服务 hi 再服务 lo**（执行完 `xTaskNotifyGive(waiter)` 回结果）→ 无请求则等 DIO1/唤醒（1s 超时）→ 读包投 `q_rf_rx`
+- 优先级语义：`q_radio_hi` = CAD / set_sf / suspend / resume / reset + ACK·控制帧 TX；`q_radio_lo` = 普通数据帧 TX → **ACK 不会被排队的数据帧挡住**（mac_task 可能正阻塞在自己等 ACK 的窗口里）
+- 有界等待：每个调用者同一时刻只有 1 个在途请求，队列 hi6/lo4；最坏等待 ≈ 其它生产者各自一个操作的时长之和（实测上限远小于 5s WDT）
 
 ### 数据流
 DIO1 上升沿中断 `radio_isr` → `vTaskNotifyGiveFromISR(g_rf_task)` → rf_task 被唤醒
@@ -54,6 +66,7 @@ DIO1 上升沿中断 `radio_isr` → `vTaskNotifyGiveFromISR(g_rf_task)` → rf_
 8. 暂停/恢复（`radio_suspend`/`radio_resume`，OTA 维护模式用）：suspend 设 `g_suspended=true` + standby，之后所有射频操作 no-op；resume 清标志 + startReceive
 9. **任务看门狗**（P0-1）：`rf_task` 开头 `watchdog_register_current()` 订阅；等 DIO1 通知带 **1s 超时**（`ulTaskNotifyTake(pdTRUE, 1000ms)`），超时也醒来 `watchdog_feed()`，保证长时间无包时不被 WDT 判死（通知是计数锁存，超时后到达的中断下一轮仍能命中，不丢包）
 10. **就绪状态与周期重试**（P0-4）：`radio_is_ready()` 对外暴露；`radio_init` 失败置 false；`rf_task` 每轮调 `radio_retry_tick()`——未就绪且距上次 ≥10s 就重新 `begin()`，成功则重挂 DIO1 中断、置就绪并打印日志。**重试不触发 `watchdog_rf_fault`**（避免"累计 3 次整机重启"被周期重试放大）
+11. **射频单所有者**（P0-2）：可用 `grep -rn "g_radio->" firmware/src` 自查——除 `drivers/radio.cpp` 外全工程再无 `g_radio->` / `SPI.` / `attachInterrupt`；上层模块（adr/mac/ota/watchdog）调用方式零改动。约束：调用 `radio_*` 的任务**不得把任务通知用于其它用途**（通知=请求完成信号）
 
 ### 故障自救（架构 §8.2）
 - `radio_transmit` 连续 3 次失败 → `watchdog_rf_fault()`（软复位 NRST，累计 3 次整机重启）

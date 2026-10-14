@@ -30,6 +30,25 @@ static uint8_t g_init_sf, g_init_cr;
 static uint16_t g_init_sync;
 static int8_t g_init_pwr;
 
+// ---- 射频单所有者（P0-2）：请求模型（仅本模块内部使用，不进头文件）----
+#define RADIO_REQ_HI_LEN 6
+#define RADIO_REQ_LO_LEN 4
+
+enum { ROP_TX = 0, ROP_CAD, ROP_SET_SF, ROP_SUSPEND, ROP_RESUME, ROP_RESET };
+
+struct radio_req_t {
+    uint8_t  op;               // ROP_*
+    uint8_t  sf;               // ROP_SET_SF 用
+    uint16_t len;              // ROP_TX 用
+    int16_t  result;           // 所有者执行后回填
+    TaskHandle_t waiter;       // 等待者任务（调用方填）
+    uint8_t  data[FRAME_MTU];  // ROP_TX 的数据（调用方拷入）
+};
+
+static QueueHandle_t g_req_hi = nullptr;              // 高优先：控制操作 + ACK/控制帧 TX
+static QueueHandle_t g_req_lo = nullptr;              // 低优先：普通数据帧 TX
+static TaskHandle_t  g_radio_owner = nullptr;         // 射频所有者（= rf_task）
+
 // DIO1 中断：只发任务通知给 rf_task，不在 ISR 里读 SPI
 static void IRAM_ATTR radio_isr() {
     BaseType_t hpw = pdFALSE;
@@ -77,8 +96,8 @@ bool radio_is_ready(void) { return g_radio_ready; }
 
 static uint8_t g_tx_fail = 0;
 
-int16_t radio_transmit(const uint8_t* data, size_t len, uint32_t timeout_ms) {
-    (void)timeout_ms;
+// ---- 底层动作：所有芯片操作只准在 rf_task（所有者）上下文执行 ----
+static int16_t radio_do_tx(const uint8_t* data, size_t len) {
     if (g_suspended || !g_radio_ready) return -1;
 #if defined(RADIO_SX126X)
     if (!g_radio) return -1;
@@ -127,7 +146,7 @@ int16_t radio_readPacket(uint8_t* buf, size_t maxlen, size_t* len,
 
 // CAD 侦听（LBT 用）：状态驱动轮询，直到 CAD 完成或超时（P0-3）
 //   0 = 空闲（CAD_DONE）；1 = 忙（CAD_DETECTED）；负 = 错误/超时（调用方按“忙”处理）
-int16_t radio_channelActivity() {
+static int16_t radio_do_cad() {
 #if defined(RADIO_SX126X)
     if (g_suspended || !g_radio || !g_radio_ready) return -1;
 
@@ -157,7 +176,7 @@ float radio_lastRssi() { return g_last_rssi; }
 float radio_lastSnr()  { return g_last_snr; }
 
 // 运行时切 SF（ADR 用）：先 standby 再改参数再回接收态
-bool radio_set_sf(uint8_t sf) {
+static bool radio_do_set_sf(uint8_t sf) {
 #if defined(RADIO_SX126X)
     if (g_suspended || !g_radio || !g_radio_ready) return false;
     int16_t st = g_radio->standby();
@@ -171,24 +190,85 @@ bool radio_set_sf(uint8_t sf) {
 #endif
 }
 
-void radio_hardReset() {
-#if defined(RADIO_SX126X)
-    if (g_radio) g_radio->reset();
-#endif
-}
-
-void radio_suspend() {
+static void radio_do_suspend() {
 #if defined(RADIO_SX126X)
     g_suspended = true;
     if (g_radio) g_radio->standby();   // 停收发，释放空口给 WiFi 维护
 #endif
 }
 
-void radio_resume() {
+static void radio_do_resume() {
 #if defined(RADIO_SX126X)
     g_suspended = false;
     if (g_radio) g_radio->startReceive();
 #endif
+}
+
+// ---- 统一入口（归属判定）：所有者上下文直接执行；否则请求队列 + 阻塞等结果 ----
+static int16_t radio_exec_inline(uint8_t op, uint8_t sf, const uint8_t* data, size_t len) {
+    switch (op) {
+        case ROP_TX:      return radio_do_tx(data, len);
+        case ROP_CAD:     return radio_do_cad();
+        case ROP_SET_SF:  return radio_do_set_sf(sf) ? 0 : -1;
+        case ROP_SUSPEND: radio_do_suspend(); return 0;
+        case ROP_RESUME:  radio_do_resume();  return 0;
+        case ROP_RESET:   if (g_radio) g_radio->reset(); return 0;
+        default:          return -1;
+    }
+}
+
+static int16_t radio_call(uint8_t op, uint8_t sf, const uint8_t* data, size_t len, bool hi) {
+    TaskHandle_t me = xTaskGetCurrentTaskHandle();
+    if (g_radio_owner == nullptr || g_radio_owner == me) {
+        return radio_exec_inline(op, sf, data, len);   // 启动早期 / 所有者自己调用
+    }
+    if (op == ROP_TX && len > FRAME_MTU) return -1;
+
+    radio_req_t req = {};
+    req.op = op; req.sf = sf; req.waiter = me;
+    if (op == ROP_TX && data && len > 0) {
+        memcpy(req.data, data, len);
+        req.len = (uint16_t)len;
+    }
+
+    (void)ulTaskNotifyTake(pdTRUE, 0);                 // 清残留通知，防误判完成
+    QueueHandle_t q = hi ? g_req_hi : g_req_lo;
+    if (xQueueSend(q, &req, pdMS_TO_TICKS(100)) != pdTRUE) return -1;   // 队列满：快速失败
+    xTaskNotifyGive(g_radio_owner);                    // 唤醒所有者（与 DIO1 通知共用，多一次无害）
+    (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);     // 等所有者执行完（WDT 是兜底）
+    return req.result;
+}
+
+// ---- 公开 API：委托给所有者（签名保持不变）----
+
+int16_t radio_transmit(const uint8_t* data, size_t len, uint32_t timeout_ms) {
+    (void)timeout_ms;
+    return radio_call(ROP_TX, 0, data, len, false);
+}
+
+// 高优先发送（ACK/控制帧用；与 radio_transmit 同语义，但排在普通数据帧前面）
+int16_t radio_transmit_prio(const uint8_t* data, size_t len) {
+    return radio_call(ROP_TX, 0, data, len, true);
+}
+
+int16_t radio_channelActivity() {
+    return radio_call(ROP_CAD, 0, nullptr, 0, true);
+}
+
+bool radio_set_sf(uint8_t sf) {
+    return radio_call(ROP_SET_SF, sf, nullptr, 0, true) == 0;
+}
+
+void radio_hardReset() {
+    (void)radio_call(ROP_RESET, 0, nullptr, 0, true);
+}
+
+void radio_suspend() {
+    (void)radio_call(ROP_SUSPEND, 0, nullptr, 0, true);
+}
+
+void radio_resume() {
+    (void)radio_call(ROP_RESUME, 0, nullptr, 0, true);
 }
 
 // ---- rf_task：DIO1 中断 -> 读包 -> 投 q_rf_rx ----
@@ -218,12 +298,28 @@ static void rf_task_func(void* arg) {
     watchdog_register_current();
     radio_startReceive();
     for (;;) {
-        watchdog_feed();   // 每轮先喂狗：无论收包还是超时都要喂
-        radio_retry_tick();   // 射频未就绪时无真包，这里每轮尝试恢复
-        // 带 1s 超时等 DIO1 中断：超时也醒来喂狗，避免任务被 WDT 判定卡死
-        if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000)) == 0) {
-            continue;   // 超时（无包）：不读包，直接进入下一轮
+        watchdog_feed();
+        radio_retry_tick();
+
+        // 1) 先服务请求（hi 优先，非阻塞）——服务完立刻 continue 再查
+        radio_req_t* req = nullptr;
+        if (xQueueReceive(g_req_hi, &req, 0) == pdTRUE) {
+            req->result = radio_exec_inline(req->op, req->sf, req->data, req->len);
+            if (req->waiter) xTaskNotifyGive(req->waiter);
+            continue;
         }
+        if (xQueueReceive(g_req_lo, &req, 0) == pdTRUE) {
+            req->result = radio_exec_inline(req->op, req->sf, req->data, req->len);
+            if (req->waiter) xTaskNotifyGive(req->waiter);
+            continue;
+        }
+
+        // 2) 无请求 → 等 DIO1 中断（1s 超时）或"有请求"的唤醒（两者共用任务通知）
+        if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000)) == 0) {
+            continue;   // 超时：回循环，服务请求 + 喂狗
+        }
+
+        // 3) 醒来：可能是收包完成，也可能是请求唤醒 → 先尝试读包（读不到就当无事发生）
         uint8_t buf[FRAME_MTU];
         size_t len = 0;
         float rssi, snr;
@@ -242,6 +338,10 @@ static void rf_task_func(void* arg) {
 }
 
 void radio_start(void) {
+    // 队列与所有者标记必须在任务创建前就位：否则 adr_init 等启动期调用可能走"无所有者→inline"路径
+    g_req_hi = xQueueCreate(RADIO_REQ_HI_LEN, sizeof(radio_req_t*));
+    g_req_lo = xQueueCreate(RADIO_REQ_LO_LEN, sizeof(radio_req_t*));
     xTaskCreatePinnedToCore(rf_task_func, "rf", RF_TASK_STACK,
                             nullptr, RF_TASK_PRIO, &g_rf_task, RF_TASK_CORE);
+    g_radio_owner = g_rf_task;   // 从此刻起：射频单所有者 = rf_task
 }

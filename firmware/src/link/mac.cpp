@@ -122,7 +122,7 @@ void mac_send_ack(uint8_t src_id, uint16_t seq) {
     f.ttl     = 1;
     f.proto   = PROTO_MAVLINK;
     size_t n = frame_encode(&f, buf, sizeof(buf));
-    if (n > 0) radio_transmit(buf, n, 500);
+    if (n > 0) radio_transmit_prio(buf, n);
 }
 
 uint32_t mac_tx_count()   { return g_tx; }

@@ -123,7 +123,7 @@ radio.begin(freq, bw, sf, cr, syncWord, pwr);
 
 | 任务 | 核 | 优先级 | 职责 |
 |---|---|---|---|
-| `rf_task` | 0 | 22 | DIO1 中断→任务通知→读 RadioLib、把原始帧投 `q_rf_rx` |
+| `rf_task` | 0 | 22 | **射频单所有者**（P0-2）：服务射频请求队列（hi/lo，执行芯片操作并回结果）+ DIO1 中断→读包→投 `q_rf_rx` |
 | `mac_task` | 0 | 20 | 发信排队、LBT、ACK 超时重传、退避 |
 | `mesh_task` | 0 | 18 | 转发判定、去重、TTL 减一、回投 `q_mac_tx` |
 | `mavlink_task` | 1 | 12 | MAVLink 解析、按 sysid 分发、心跳优先、分片触发 |
@@ -149,6 +149,7 @@ radio.begin(freq, bw, sf, cr, syncWord, pwr);
 | `q_uart_tx` | mavlink_task → uart_task | 下发飞控 MAVLink |
 | `q_usb_tx` | mavlink_task → usb_task | 上送地面站 MAVLink |
 | `q_frag` | mavlink_task → frag | 待重组分片 |
+| `q_radio_hi` / `q_radio_lo` | mac / mesh / adr / ota / watchdog → rf_task | 射频请求（P0-2 射频单所有者）：hi=控制操作（CAD/切SF/suspend/resume/reset）+ ACK·控制帧 TX，lo=普通数据帧 TX；元素为请求指针 |
 
 > 发送队列拆成 3 个（`q_mac_tx_hi/med/lo`）实现优先级：QOS2→hi、QOS1→med、QOS0→lo；mac_task 按 hi→med→lo 顺序读，高优先级帧最多延迟 5ms。
 
@@ -200,12 +201,14 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 | `adr` 的 `g_sf/g_epoch_ms/...` | core0 mac_task 写 + mesh_task 写 + core1 读 | `volatile` |
 | `frag` 的 `g_reasm` | core0 mesh_task（reassemble + tick） | 无锁（单核单任务） |
 | `frag` 的 `g_frag_seq` | core1 mavlink_task（split） | 无锁（单核） |
+| `radio`（芯片 + SPI + `g_suspended`/`g_radio_ready`） | **所有模块都"用"它** | **射频单所有者（P0-2）：芯片操作只准在 `rf_task` 上下文执行**；其它任务走 `radio_*` 接口（内部 = 请求队列 `q_radio_hi/lo` + 任务通知取结果），**禁止直接碰 RadioLib/SPI** |
 
 **铁律**：
 1. **seq 只有一个源**：`mesh_next_seq()`。任何模块发帧都从它取 seq，禁止再建 `g_xxx_seq` 计数器（多计数器会导致同一节点 seq 重叠 → 去重误判丢帧）。
 2. **字节流状态机一源一套**：uart/usb 各自独立 `rx_state_t`；mesh 帧 payload 是完整消息，直接 route_msg 不走状态机。
 3. **任务不能删自己**：`vTaskDelete` 只删别的任务；删自己用「置标志 + 任务循环退出 + 尾部 `vTaskDelete(nullptr)`」模式。
 4. 统计计数器（tx/rx/ack 等）跨核读是"近似值"，接受陈旧读，不强加锁。
+5. **射频单所有者**（P0-2）：任何 SPI/芯片操作只准在 `rf_task` 里执行（`radio_*` 接口已封装为请求队列）；**调用 `radio_*` 的任务不得把"任务通知"用于其它用途**（通知被用作请求完成信号）；`rf_task` 自身（含周期重试、射频自救）走"所有者直接执行"路径，不会自投自收死锁。
 
 ---
 

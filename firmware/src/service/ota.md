@@ -122,8 +122,8 @@
 ### 关键实现细节
 1. **整页用 `String` 拼装后一次 `send()`**：`String::reserve(WUI_RESERVE=10240)` 一次分配、避免堆碎片；Content-Length 和 `Connection: close` 交给 WebServer 填。
    旧实现是「`sendHeader()` 设 Content-Type + 手写 `HTTP/1.1 200 OK` 状态行 + 逐字节 `pgm_read_byte` 写 body」，有两个毛病：① `sendHeader()` 只是往 `_responseHeaders` 里追加，而只有 `send()`/`_prepareHeader()` 才会把它发出去并清空——旧代码从不调 `send()`，于是**每来一个请求这串就长一截，永不释放**（String 堆泄漏）；② Content-Type 其实从没真正发给浏览器，页面能正常显示纯属浏览器嗅探。改法见 `ota.cpp` 顶部注释。
-2. **射频 suspend 后 no-op**：`radio_transmit/readPacket/startReceive/set_sf/channelActivity` 开头都查 `g_suspended`，暂停期上层模块照常跑但都不碰 SPI/芯片。
+2. **射频 suspend 后 no-op**：`radio_transmit/readPacket/startReceive/set_sf/channelActivity` 开头都查 `g_suspended`，暂停期上层模块照常跑但都不碰 SPI/芯片。P0-2 起这些接口都经射频单所有者 `rf_task` 执行——`radio_suspend/resume` 本身也是请求，**会阻塞到所有者真正执行完**，保证"WiFi 起来前射频确实已停"。
 3. **nvs_cfg 新增字段**：`wifi_ssid[32]`/`wifi_pass[32]`/`ota_url[96]`；SSID 空则默认 `EMlink-<node_id>`，pass 空则开放热点，ota_url 预留。
-4. **不接板子验证页面**：`design/verify_webui.py` 会把 `webui.h` 里 10 个段的 C 字符串抠出来（按「是否在字符串内」扫描，不能在 `;` 上简单截断——CSS 里到处是分号），按 `ota.cpp` 的拼装顺序还原成真实 HTML，做标签闭合/关键元素/页面尺寸自检，并输出 `design/webui-render.html` 供浏览器直接打开。
+4. **不接板子验证页面**：`design/verify_webui.py` 会把 `webui.h` 里 11 个段的 C 字符串抠出来（按「是否在字符串内」扫描，不能在 `;` 上简单截断——CSS 里到处是分号），按 `ota.cpp` 的拼装顺序还原成真实 HTML，做标签闭合/关键元素/页面尺寸自检，并输出 `design/webui-render.html` 供浏览器直接打开。
    验证链路：`python3 design/verify_webui.py`（页面对不对）→ `pio run`（能不能编译）→ Firefox headless 截图看观感。只做 `pio run` 只能证明「能编译」，证明不了「页面是对的」。
    ⚠️ 本机 Microsoft Edge 的 headless 稳定 SIGTRAP 崩溃（换 4 组参数都一样），截图请用 `firefox --headless --screenshot`；另注意跑浏览器前要 `unset LD_LIBRARY_PATH`（Hermes 运行时会把旧 libstdc++ 塞进去）。

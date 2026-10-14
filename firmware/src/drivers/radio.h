@@ -31,6 +31,12 @@ bool radio_is_ready(void);
 // 阻塞发送；返回 0 成功，负值错误码
 int16_t radio_transmit(const uint8_t* data, size_t len, uint32_t timeout_ms);
 
+// 高优先发送（ACK/控制帧用；与 radio_transmit 同语义，但排在普通数据帧前面）
+// 注意：P0-2 起射频归 rf_task 单所有者——以上所有射频接口内部改为"请求队列 + 阻塞等结果"，
+// 调用者（mac/mesh/ota/watchdog 等）不需要改调用方式；但调用这些接口的任务
+// 不得把"任务通知（task notification）"用于其它用途。
+int16_t radio_transmit_prio(const uint8_t* data, size_t len);
+
 // 进入接收态；DIO 触发中断（由 rf_task 消费）
 bool radio_startReceive();
 
