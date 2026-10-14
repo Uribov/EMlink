@@ -40,6 +40,8 @@ static mesh_rx_cb_t g_rx_cb = nullptr;
 
 // 统计
 static uint32_t g_fwd = 0, g_drop_ttl = 0, g_drop_dup = 0, g_drop_crc = 0, g_rx = 0;
+// 去重表满淘汰次数（>0 说明同场活跃源超过 MESH_MAX_SRC）
+static uint32_t g_dedup_evict = 0;
 static uint32_t g_drop_auth = 0;
 static uint32_t g_last_rx_ms = 0;
 
@@ -64,19 +66,28 @@ static void bm_shift_left(uint32_t* bm, int words, int shift) {
     }
 }
 
+// 找源对应的槽；没有空槽时淘汰"最久未见"的源（原实现返回 nullptr → 整表停止判重）
 static dedup_slot_t* dedup_slot(uint8_t src_id) {
     dedup_slot_t* free_slot = nullptr;
+    dedup_slot_t* oldest    = nullptr;
     for (int i = 0; i < MESH_MAX_SRC; i++) {
         if (g_dedup[i].src_id == src_id) return &g_dedup[i];
-        if (!free_slot && g_dedup[i].src_id == 0) free_slot = &g_dedup[i];
+        if (g_dedup[i].src_id == 0) { if (!free_slot) free_slot = &g_dedup[i]; continue; }
+        if (!oldest || (int32_t)(g_dedup[i].last_seen_ms - oldest->last_seen_ms) < 0) oldest = &g_dedup[i];
     }
-    return free_slot;
+    if (free_slot) return free_slot;
+    if (oldest) {           // 表满：淘汰最旧的源
+        oldest->src_id = 0; // 置空，交给 dedup_check 重新初始化
+        g_dedup_evict++;
+        return oldest;
+    }
+    return nullptr;
 }
 
 // 去重检查：返回 true=重复（丢弃）
 static bool dedup_check(uint8_t src_id, uint16_t seq) {
     dedup_slot_t* s = dedup_slot(src_id);
-    if (!s) return false;   // 表满，不判重（宁重复不丢新帧）
+    if (!s) return false;   // 不可能到达：dedup_slot 已保证有槽
 
     uint32_t now = millis();
     if (s->src_id == 0 || (now - s->last_seen_ms) > MESH_DEDUP_TTL_MS) {
@@ -337,6 +348,7 @@ uint32_t mesh_fwd_count()      { return g_fwd; }
 uint32_t mesh_drop_ttl_count() { return g_drop_ttl; }
 uint32_t mesh_drop_dup_count() { return g_drop_dup; }
 uint32_t mesh_drop_crc_count() { return g_drop_crc; }
+uint32_t mesh_dedup_evict_count() { return g_dedup_evict; }
 uint32_t mesh_drop_auth_count() { return g_drop_auth; }
 uint32_t mesh_rx_count()       { return g_rx; }
 uint32_t mesh_last_rx_ms()     { return g_last_rx_ms; }

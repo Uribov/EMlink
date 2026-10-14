@@ -46,6 +46,7 @@ uint32_t mesh_fwd_count();
 uint32_t mesh_drop_ttl_count();
 uint32_t mesh_drop_dup_count();
 uint32_t mesh_drop_crc_count();
+uint32_t mesh_dedup_evict_count();
 // 认证/解密失败计数（P1-8：只影响本机投递，不影响转发）
 uint32_t mesh_drop_auth_count();
 uint32_t mesh_rx_count();

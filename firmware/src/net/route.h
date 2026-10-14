@@ -8,6 +8,9 @@
 // 邻居表最大条目
 #define ROUTE_MAX_NEIGHBORS 16
 
+// 路径老化：这么久没再听到该源即视为失效（外场按实测调；太短会让单播频繁退回广播）
+#define ROUTE_PATH_TTL_MS 120000
+
 // 邻居信息
 struct neighbor_t {
     uint8_t  node_id;
@@ -28,3 +31,7 @@ uint8_t route_neighbors(neighbor_t* out, uint8_t max);
 
 // 更新某邻居的 RSSI（收到 BEACON 时调用）
 void route_update_rssi(uint8_t src_id, int16_t rssi);
+
+// 因过期/满淘汰而失效的路径条数（诊断用）
+uint32_t route_expired_count();
+uint32_t route_evict_count();
