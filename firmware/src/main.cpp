@@ -21,6 +21,7 @@
 #include "service/addr_map.h"
 #include "service/watchdog.h"
 #include "service/crypto.h"
+#include "service/ota.h"
 #include "app/role.h"
 #include "app/cli.h"
 #include "app/stats.h"
@@ -126,5 +127,6 @@ void loop() {
             Serial.write(Serial.read());
         }
     }
+    ota_boot_confirm_tick();   // P1-5：系统健康后向 bootloader 确认固件（取消回滚）
     delay(10);
 }

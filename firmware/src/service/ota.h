@@ -20,3 +20,7 @@ bool ota_active();
 
 // 处理一轮 WebServer 请求（ota_task 循环调用；也可由 CLI 在无任务时单步）
 void ota_handle();
+
+// 开机自检：系统启动且射频就绪后调用一次 → 向 bootloader 确认"本固件可用"（取消回滚）
+// 由 main.cpp 的 loop() 每轮调用（内部自带"只做一次"保护）
+void ota_boot_confirm_tick(void);

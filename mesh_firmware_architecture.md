@@ -429,12 +429,15 @@ mavlink monitor on      （旁路观察 MAVLink，预留）
 - 默认关闭，密钥经 CLI `crypto <32hex>` / 网页（ota 模块）设置
 - 位置：`service/crypto`（依赖 frame_codec 的 FLAG_ENC + nvs_cfg 的 crypto_key）
 
-### 13.2 OTA 固件升级（WiFi，ota）—— ✅ 已实现（WiFi AP Web 管理，学 ELRS）
+### 13.2 OTA 固件升级（WiFi，ota）—— ✅ 已实现（WiFi AP Web 管理，学 ELRS；P1-5 加固）
 - WiFi AP 模式：SSID `EMlink-<node_id>`，IP 192.168.4.1，密码可空；CLI `wifi` 触发，`wifi off` 退出
 - Arduino WebServer + 内嵌 HTML（PROGMEM，不占 RAM 不加 spiffs）：改参数 / 设密钥 / 刷固件(Update.h) / 退出
 - 维护模式 WiFi 与 LoRa **二选一**：`ota_start` 先 `radio_suspend()`（射频 standby + no-op），退出 `radio_resume()`；adr/mac/mesh 零改动
 - `partition` 表改用 OTA 双分区（`partitions_ota.csv`：app0/app1 各 1.5M + otadata 回滚），刷固件写空闲分区重启切过去，失败可回滚
-- 位置：`service/ota`（依赖 nvs_cfg 的 wifi_ssid/pass + crypto 设密钥 + radio suspend/resume）
+- **回滚确认（P1-5，必须做）**：平台启用了 `APP_ROLLBACK`，新固件处于 PENDING_VERIFY；开机满 10s 且 `radio_is_ready()` 时调 `esp_ota_mark_app_valid_cancel_rollback()` 确认，否则**下次重启会被 bootloader 悄悄回滚**；射频起不来就不确认（安全网）
+- **维护模式自动退出（P1-5）**：空闲 5 分钟无客户端、或 30 分钟硬上限（刷固件中不生效）→ 自动退出、恢复 LoRa
+- 仍未做：**网页/OTA 无鉴权**（属产品决策）
+- 位置：`service/ota`（依赖 nvs_cfg 的 wifi_ssid/pass + crypto 设密钥 + radio suspend/resume/is_ready）
 
 ### 13.3 自适应速率（adr）—— ✅ 已实现（BEACON 锚定固定速率表）
 - 非真动态自适应（不按 RSSI/SNR 实时调），就是一张固定速率表，靠 GCS 的 BEACON 对齐全网节奏

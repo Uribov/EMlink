@@ -16,6 +16,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Update.h>
+#include <esp_ota_ops.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -24,6 +25,16 @@ static TaskHandle_t g_ota_task = nullptr;
 static volatile bool g_active = false;
 static uint8_t      g_node_id = 1;
 static bool         g_upd_ok  = false;   // 本次刷写是否成功（供完成回调判断）
+
+// 维护模式自动退出（P1-5）：AP 是无鉴权的改参数/刷固件入口，不能长期敞开
+#define OTA_AP_IDLE_MS       300000u   // 5 分钟没有客户端连着 → 自动退出
+#define OTA_AP_MAX_MS       1800000u   // 30 分钟硬上限（刷固件过程中不生效）
+#define OTA_BOOT_CONFIRM_MS   10000u   // 开机满 10s 且射频就绪才确认新固件
+
+static uint32_t g_ap_start_ms = 0;      // AP 开启时刻
+static uint32_t g_last_client_ms = 0;   // 最后一次"有客户端"的时刻
+static bool     g_updating = false;     // 正在上传固件（期间不自动退出）
+static bool     g_boot_confirmed = false;  // 本次开机是否已确认固件
 
 // 整页 String 预留容量（还原实测主页 9276 字节，留 ~1KB 余量；
 // 一次分配，避免反复 realloc 造成堆碎片）
@@ -203,11 +214,13 @@ static void handle_upload() {
     HTTPUpload& up = s.upload();
 
     if (up.status == UPLOAD_FILE_START) {
+        g_updating = true;
         g_upd_ok = false;
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) Update.printError(Serial);
     } else if (up.status == UPLOAD_FILE_WRITE) {
         if (Update.write(up.buf, up.currentSize) != up.currentSize) Update.printError(Serial);
     } else if (up.status == UPLOAD_FILE_END) {
+        g_updating = false;
         if (Update.end(true)) {
             g_upd_ok = true;
             send_done(s, false, "刷写成功，正在重启…");
@@ -241,6 +254,20 @@ static void ota_task_func(void* arg) {
     (void)arg;
     while (g_active) {
         if (g_server) g_server->handleClient();
+
+        // 维护模式自动退出（P1-5）：客户端在 → 刷新活动时间；刷固件中 → 一律不超时
+        if (WiFi.softAPgetStationNum() > 0) g_last_client_ms = millis();
+        uint32_t now = millis();
+        if (!g_updating) {
+            if (now - g_last_client_ms > OTA_AP_IDLE_MS) {
+                Serial.println("[ota] 维护模式空闲超时（5 分钟无客户端）→ 自动退出");
+                ota_stop();          // 任务内部调用：只置 g_active=false，本循环下一轮退出并自清理
+            } else if (now - g_ap_start_ms > OTA_AP_MAX_MS) {
+                Serial.println("[ota] 维护模式已达 30 分钟上限 → 自动退出");
+                ota_stop();
+            }
+        }
+
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     // 任务自己清理（g_server 的唯一删除者，避免跨任务 use-after-free）
@@ -288,6 +315,10 @@ void ota_start() {
 
     g_active = true;
 
+    g_ap_start_ms    = millis();
+    g_last_client_ms = millis();
+    g_updating       = false;
+
     // 5. 起任务（core1）
     xTaskCreatePinnedToCore(ota_task_func, "ota", OTA_TASK_STACK,
                             nullptr, OTA_TASK_PRIO, &g_ota_task, OTA_TASK_CORE);
@@ -304,4 +335,15 @@ bool ota_active() { return g_active; }
 
 void ota_handle() {
     if (g_server) g_server->handleClient();
+}
+
+void ota_boot_confirm_tick(void) {
+    if (g_boot_confirmed) return;
+    if (millis() < OTA_BOOT_CONFIRM_MS) return;
+    if (!radio_is_ready()) return;      // 射频没起来 → 不确认，交给 bootloader 回滚（安全网）
+    esp_err_t r = esp_ota_mark_app_valid_cancel_rollback();
+    if (r == ESP_OK)                    Serial.println("[ota] 新固件已确认可用（取消回滚）");
+    else if (r == ESP_ERR_NOT_SUPPORTED) Serial.println("[ota] 平台未启用回滚，跳过确认");
+    else                                Serial.printf("[ota] 固件确认失败: %d\n", (int)r);
+    g_boot_confirmed = true;            // 无论成败只做一次（避免刷屏 / 反复调用）
 }

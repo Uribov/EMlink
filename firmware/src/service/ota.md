@@ -1,7 +1,7 @@
 # ota —— OTA 固件升级 / WiFi Web 管理
 
 ## 职责
-落地维护时的无线管理入口：板子开一个 WiFi 热点，手机连上后打开网页，就能**改参数、设加密密钥、刷固件**，不用插 USB 线。
+落地维护时的无线管理入口：板子开一个 WiFi 热点，手机连上后打开网页，就能**改参数、设加密密钥、刷固件**，不用插 USB 线。并且负责**向 bootloader 确认新固件可用**（取消回滚）。
 
 学 ELRS 的做法：WiFi AP 模式 + 内嵌网页 + 浏览器上传 .bin 刷固件。网页视觉也学 ELRS（深色单页、大标题、扁平几何），但**不抄它的代码**——ELRS 的实现是 Vue SPA（压缩后 250–320KB），本工程既放不下也不需要。
 
@@ -9,9 +9,9 @@
 **已实现**。默认不启动；CLI 敲 `wifi` 触发。
 
 ## 依赖
-- `WiFi.h` / `WebServer.h` / `Update.h`（ESP32 Arduino 内置，无需额外库）
+- `WiFi.h` / `WebServer.h` / `Update.h` / `esp_ota_ops.h`（ESP32 Arduino / IDF 内置，无需额外库）
 - `nvs_cfg.h`（读写参数/密钥/node_id/wifi 配置）、`crypto.h`（设密钥）
-- `radio.h`（`radio_suspend`/`radio_resume`，维护模式二选一）
+- `radio.h`（`radio_suspend`/`radio_resume` 二选一；`radio_is_ready` 判固件确认时机）
 - `webui.h`（页面静态资源：HTML 骨架 + CSS + 几何标记，仅本模块用）
 
 ## 方案（定死）
@@ -24,18 +24,25 @@
 | 网页功能 | 改参数 / 设密钥 / 刷固件(Update.h) / 恢复出厂 / 退出维护模式 |
 | 网页风格 | 学 ELRS：深色底、大标题、纯黑白灰、1px 发丝线、零圆角、等边三角网格标记 |
 | 触发 | CLI `wifi`；退出 `wifi off` 或网页「退出」按钮 |
+| 自动退出 | **空闲 5 分钟无客户端** 或 **30 分钟硬上限**（刷固件中不生效）（P1-5） |
 
 ## 关键设计：WiFi 与 LoRa 二选一
 - WiFi 栈默认占 core0，而射频收发任务也全在 core0，同时开会抢 CPU
 - 故「维护模式」：`ota_start` 先 `radio_suspend()`（射频 standby + 所有射频操作 no-op），退出时 `radio_resume()`
 - 好处：adr/mac/mesh 模块**零改动**——射频 suspend 后它们的操作自动变无害空操作
 
-## OTA 双分区（partitions_ota.csv）
+## OTA 双分区（partitions_ota.csv）与回滚确认（P1-5）
 4MB Flash：`app0`/`app1` 各 1.5M + `otadata`（回滚）+ `nvs` + `coredump`，不加 spiffs（网页内嵌固件）。
-刷固件写空闲分区，重启后由 otadata 切到新分区，失败可回滚。
+刷固件写空闲分区，重启后由 otadata 切到新分区。
+
+**本平台启用了应用回滚**（Arduino-ESP32 2.0.17 的 sdkconfig：`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`、`CONFIG_APP_ROLLBACK_ENABLE=y`）。
+因此刷完固件重启进入的新固件处于 **PENDING_VERIFY**：**必须调用 `esp_ota_mark_app_valid_cancel_rollback()` 确认**，否则**下次重启 bootloader 会默默回滚到升级前的旧版本**（现场表现："升完能用，断电重启又变回老固件"）。
+本模块的做法：开机满 `OTA_BOOT_CONFIRM_MS`（10s）且 `radio_is_ready()` 为真 → 确认一次。
+- 射频一直起不来 → **不确认** → 下次重启回滚到旧固件（安全网：宁可回退，也不把半瘫固件固化）
+- 代价：若射频起不来是"配置写错"而非固件问题，回滚也救不了（要连 USB 用 CLI 改回参数）
 
 ## 对外接口
-见 `ota.h`：`ota_start / ota_stop / ota_active / ota_handle`。
+见 `ota.h`：`ota_start / ota_stop / ota_active / ota_handle`（CLI 单步用）+ `ota_boot_confirm_tick`（main 的 loop 每轮调；开机自检）。
 
 ## 验收
 - CLI `wifi` → 手机搜到 `EMlink-<id>` 热点 → 浏览器 192.168.4.1 打开配置页
@@ -43,9 +50,10 @@
 - 网页设 32 hex 密钥 → `crypto` 显示「开」
 - **网页密钥填不足 32 位（或含非 hex 字符）→ 报「请输入正确的格式」，不提交、不改动原密钥**
 - 网页密钥里粘贴时带了空格/换行 → 自动清掉后仍判定通过
-- 网页上传 .bin → 刷写 → 自动重启 → 版本更新
+- 网页上传 .bin → 刷写 → 自动重启 → **串口打印「新固件已确认可用（取消回滚）」→ 再断电重启一次，仍是新版本**（P1-5 关键验收）
 - 网页上传时**没选文件** → 立刻回「刷写失败」，不转圈
 - 网页「退出」→ LoRa 恢复，`stats` 显示链路正常
+- AP 开着无人连 → 5 分钟后自动退出、LoRa 恢复；挂着客户端不动 → 30 分钟自动退出（P1-5）
 
 ---
 
@@ -57,9 +65,16 @@
 - `g_active`：维护模式标志（`volatile`，ota_stop 只置 false）
 - `g_node_id`：SSID 用的节点号（ota_start 时从 NVS 读）
 - `g_upd_ok`：本次刷写是否成功；`/update` 的**完成回调**靠它区分「成功（已回过话并重启）」和「失败/压根没选文件」
+- `g_ap_start_ms` / `g_last_client_ms` / `g_updating`：维护模式超时判定（P1-5）；`g_updating` 由 `handle_upload` 的 START/END 置位
+- `g_boot_confirmed`：本次开机是否已向 bootloader 确认固件（只做一次）
+
+### 常量（编译期，外场要调就重编译）
+- `OTA_AP_IDLE_MS=300000`（5 分钟无客户端 → 自动退出）
+- `OTA_AP_MAX_MS=1800000`（30 分钟硬上限；客户端挂着不走的兜底）
+- `OTA_BOOT_CONFIRM_MS=10000`（开机 10s 后才可能确认固件）
 
 ### 任务
-- `ota_task`（core1 prio6）：`while (g_active)` 循环 `g_server->handleClient()`；g_active 变 false 后**自行清理**（停/删 g_server、关 WiFi、radio_resume）再 `vTaskDelete(nullptr)` 删自己
+- `ota_task`（core1 prio6）：`while (g_active)` 循环 `g_server->handleClient()` + 超时判定；g_active 变 false 后**自行清理**（停/删 g_server、关 WiFi、radio_resume）再 `vTaskDelete(nullptr)` 删自己
 - 跑 core1 而非 core0：WiFi 栈占 core0，射频也 core0，WebServer 放 core1 不抢
 
 ### 路由表（WebServer）
@@ -90,7 +105,7 @@
 
 **三条硬约束**（改页面时必须守住）：
 1. 板子自己开热点、手机没外网 → **不许引用任何外部资源**，CSS/JS 全内嵌
-2. Flash 每 KB 都要省（当前 55.2%）→ 不引框架，纯手写 HTML + 少量原生 JS
+2. Flash 每 KB 都要省（当前 55.7%）→ 不引框架，纯手写 HTML + 少量原生 JS
 3. WebServer 单线程串行处理 → 页面越简单越稳
 
 **回执页复用主页页头**：`send_done()` 用 `WUI_HEAD + 状态行 + WUI_DONE_A/B`，只多一套 22+179 字节的段，不重复一份 CSS。
@@ -109,15 +124,20 @@
 射频参数（`handle_set`）改为走 `nvs_cfg` 的**集中校验**（P0-4）：`freq 862–930`（按 `radios/*.h` 硬件能力宏）、`sf 7–11`、`bw ∈ {125,250,500}`、`cr 5–8`、`power -9–22`——与 CLI `set`、远程 `cfg` 完全同一套规则。**有一个非法值就整表拒绝**，不留半套参数进 NVS。
 
 ### 刷固件（标准 Update.h 流程）
-- `UPLOAD_FILE_START` → `Update.begin(UPDATE_SIZE_UNKNOWN)`
+- `UPLOAD_FILE_START` → `g_updating=true`（超时判定让路）→ `Update.begin(UPDATE_SIZE_UNKNOWN)`
 - `UPLOAD_FILE_WRITE` → `Update.write(buf, size)`（分块写 flash）
-- `UPLOAD_FILE_END` → `Update.end(true)` → 回执 → 300ms → `ESP.restart()`
+- `UPLOAD_FILE_END` → `g_updating=false` → `Update.end(true)` → 回执 → 300ms → `ESP.restart()`
 - 完成回调 `handle_update_done`：失败或**没选文件**时回一句「刷写失败」，避免旧实现那种浏览器一直转圈等不到回应
-- 靠 otadata 自动切新分区；写坏可回滚
+- 靠 otadata 自动切新分区；**新固件启动后由 `ota_boot_confirm_tick()` 确认，否则下次重启回滚**（P1-5）
 
 ### 维护模式进出
-- 进（`ota_start`）：`radio_suspend()` → `WiFi.mode(WIFI_AP)` → `softAP(ssid[, pass])` → `softAPConfig(192.168.4.1)` → `WebServer` 起路由 → 起 ota_task
+- 进（`ota_start`）：`radio_suspend()` → `WiFi.mode(WIFI_AP)` → `softAP(ssid[, pass])` → `softAPConfig(192.168.4.1)` → `WebServer` 起路由 → 起 ota_task；同时记录 `g_ap_start_ms = g_last_client_ms = millis()`、`g_updating=false`
 - 出（`ota_stop`）：**只置 `g_active=false`**，不直接删任务/服务；ota_task 循环检测到后自行清理并 `vTaskDelete(nullptr)` 删自己。原因：`handle_exit` 在 ota_task 上下文里跑，直接 `vTaskDelete(g_ota_task)` 会删自己导致后续 `radio_resume()` 永不执行 + 内存泄漏
+- **自动退出（P1-5）**：ota_task 每轮判 `softAPgetStationNum()`，有客户端就刷新 `g_last_client_ms`；`!g_updating` 时若「空闲 > 5 分钟」或「开启 > 30 分钟」→ `ota_stop()`（任务内部调用只置标志，本任务照常走自清理路径）
+
+### OTA 回滚确认（P1-5）
+`ota_boot_confirm_tick()`：`g_boot_confirmed` 保护只做一次；`millis() < 10000` 直接返回；`!radio_is_ready()` 直接返回（不确认）；否则调 `esp_ota_mark_app_valid_cancel_rollback()` 并按返回值打日志（`ESP_OK` / `ESP_ERR_NOT_SUPPORTED` 平台未启用回滚 / 其它错误码）。
+调用点：`main.cpp` 的 `loop()` 里每轮一次（`loopTask` 未订阅看门狗，10ms 一轮，开销可忽略）。
 
 ### 关键实现细节
 1. **整页用 `String` 拼装后一次 `send()`**：`String::reserve(WUI_RESERVE=10240)` 一次分配、避免堆碎片；Content-Length 和 `Connection: close` 交给 WebServer 填。
@@ -127,3 +147,4 @@
 4. **不接板子验证页面**：`design/verify_webui.py` 会把 `webui.h` 里 11 个段的 C 字符串抠出来（按「是否在字符串内」扫描，不能在 `;` 上简单截断——CSS 里到处是分号），按 `ota.cpp` 的拼装顺序还原成真实 HTML，做标签闭合/关键元素/页面尺寸自检，并输出 `design/webui-render.html` 供浏览器直接打开。
    验证链路：`python3 design/verify_webui.py`（页面对不对）→ `pio run`（能不能编译）→ Firefox headless 截图看观感。只做 `pio run` 只能证明「能编译」，证明不了「页面是对的」。
    ⚠️ 本机 Microsoft Edge 的 headless 稳定 SIGTRAP 崩溃（换 4 组参数都一样），截图请用 `firefox --headless --screenshot`；另注意跑浏览器前要 `unset LD_LIBRARY_PATH`（Hermes 运行时会把旧 libstdc++ 塞进去）。
+5. **无鉴权（已知，未修）**：连上 AP 的人可以改参数、看/设密钥、刷固件。本次只做了"超时自动关 + 回滚确认"；鉴权策略（强制密码 / 一次性 PIN / 仅 USB 已枚举时可用）属产品决策，待定。
