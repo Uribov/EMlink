@@ -204,6 +204,7 @@ EMlink/
 ├── mesh_firmware_architecture.md   # ★ 总架构文档（全局约定的唯一真相源）
 ├── README.md
 ├── LICENSE
+├── docs/reviews/                   # 审查与修复留档（审查日志 + 修复对照表 + 每项任务书）
 └── firmware/
     ├── platformio.ini              # 多方案配置（每个 [env] = 一块板 + 一个射频）
     ├── partitions_ota.csv          # OTA 双分区表
@@ -262,7 +263,7 @@ EMlink/
 | 项 | 状态 |
 |---|---|
 | 21 个模块（含 crypto / adr / ota 三个扩展模块） | ✅ 全部实现 + 编译通过 |
-| 资源占用 | RAM 17.1% / Flash 54.8% |
+| 资源占用 | RAM 17.2% / Flash 55.7%（2026-10-15，A 档修复后） |
 | 文档 | 21 个模块 .md 均「编程约束 + 实现架构」双结构 |
 | 硬件 bring-up | ⏳ 待上板实测 |
 
@@ -283,6 +284,7 @@ EMlink/
 | [`firmware/docs/CONCEPTS.md`](firmware/docs/CONCEPTS.md) | 嵌入式基础概念科普（新手向） |
 | [`firmware/docs/HARDWARE_VARIANTS.md`](firmware/docs/HARDWARE_VARIANTS.md) | 如何适配新开发板 / 新射频芯片 |
 | [`firmware/docs/tool.md`](firmware/docs/tool.md) | 开发环境搭建（Windows / Linux） |
+| [`docs/reviews/`](docs/reviews/README.md) | **审查与修复留档**：代码审查日志、修复对照表（条目→提交→验证→遗留）、每个修复项的任务书 |
 
 ---
 
