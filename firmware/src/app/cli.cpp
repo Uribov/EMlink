@@ -42,7 +42,7 @@ void cli_help() {
               "  save                 保存\r\n"
               "  reset                重启\r\n"
               "  factory              恢复出厂默认（清 role/密钥/参数）\r\n"
-              "  status               看状态\r\n"
+              "  status               分层状态（驱动/中间/应用）\r\n"
               "  stats                看统计\r\n"
               "  crypto <32hex>|off   设/关加密密钥（空=看状态）\r\n"
               "  wifi [off]           开/关 WiFi 维护模式\r\n"
@@ -116,60 +116,82 @@ void cli_handle_line(const char* line) {
         if (nvs_cfg_save(&c)) cli_print("已恢复出厂默认（role 已清空、密钥已清除）——重启后进入配置模式\r\n");
         else                  cli_print("恢复失败：NVS 写入错误\r\n");
     } else if (strcmp(cmd, "status") == 0) {
-        char val[64];
-        char line[128];
-        nvs_cfg_get("role", val, sizeof(val));
-        snprintf(line, sizeof(line), "role=%s\r\n", val);
-        cli_print(line);
-        nvs_cfg_get("node_id", val, sizeof(val));
-        snprintf(line, sizeof(line), "node_id=%s  撞号冲突=%u\r\n", val, (unsigned)mesh_id_conflict_count());
-        cli_print(line);
-        snprintf(line, sizeof(line), "sysid=%u（本机 MAVLink 号）  sysid撞号=%u\r\n",
-                 (unsigned)mav_router_local_sysid(), (unsigned)mav_router_sysid_conflict_count());
-        cli_print(line);
-        nvs_cfg_get("beacon_s", val, sizeof(val));
-        snprintf(line, sizeof(line), "beacon_s=%s\r\n", val);
-        cli_print(line);
-        nvs_cfg_get("name", val, sizeof(val));
-        snprintf(line, sizeof(line), "name=%s\r\n", val[0] ? val : "-");
-        cli_print(line);
-        snprintf(line, sizeof(line), "RF: %s\r\n",
-                 radio_is_ready() ? "就绪" : "初始化失败（每 10s 重试，LED 红灯）");
-        cli_print(line);
-        snprintf(line, sizeof(line), "占空比: 超限放行=%u 次  限流丢弃=%u 次（控制类 %u，超桶放行 %u）  遥测降频=%u\r\n",
-                 (unsigned)duty_oversize_count(), (unsigned)ratelimit_drop_count(),
-                 (unsigned)ratelimit_ctrl_drop_count(), (unsigned)ratelimit_oversize_count(),
-                 (unsigned)mav_router_stream_drop_count());
-        cli_print(line);
-        snprintf(line, sizeof(line), "认证失败: %u 帧（只影响本机投递，不影响转发）\r\n",
-                 (unsigned)mesh_drop_auth_count());
-        cli_print(line);
-        snprintf(line, sizeof(line), "重放丢弃: %u 帧（密文层第二道闸，P1-4）  重同步: %u 次（对方重启）\r\n",
-                 (unsigned)crypto_replay_drop_count(), (unsigned)crypto_replay_resync_count());
-        cli_print(line);
-        snprintf(line, sizeof(line), "表容量: 去重淘汰=%u 路由过期=%u/%u 地址过期=%u/%u 分片槽淘汰=%u\r\n",
-                 (unsigned)mesh_dedup_evict_count(),
-                 (unsigned)route_expired_count(), (unsigned)route_evict_count(),
-                 (unsigned)addr_map_expired_count(), (unsigned)addr_map_evict_count(),
-                 (unsigned)frag_slot_evict_count());
-        cli_print(line);
-        snprintf(line, sizeof(line), "ADR: 对齐=%s 信标=%u 多跳=%u 失步=%u 多锚点=%u SF=%u\r\n",
-                 adr_has_beacon() ? (adr_compat_mode() ? "降级" : "是") : "否",
-                 (unsigned)adr_beacon_count(), (unsigned)adr_beacon_hop_count(),
-                 (unsigned)adr_desync_count(), (unsigned)adr_multi_anchor_count(),
-                 (unsigned)adr_current_sf());
-        cli_print(line);
+        // 分层状态：纯展示层重构——所有数字仍取自原有统计接口、逐项对应，
+        // 只把同一层的计数并到一行，方便上板时按"驱动/中间/应用"定位故障。
+        char line[384];
+        char role[64], node[64], name[64];
+        nvs_cfg_get("role", role, sizeof(role));
+        nvs_cfg_get("node_id", node, sizeof(node));
+        nvs_cfg_get("name", name, sizeof(name));
+        char bcn[16];
+        nvs_cfg_get("beacon_s", bcn, sizeof(bcn));
         char peer_ver[16];
         uint8_t pv = mesh_peer_proto_version();
         if (pv == 0) snprintf(peer_ver, sizeof(peer_ver), "未知");
         else         snprintf(peer_ver, sizeof(peer_ver), "v%u", (unsigned)pv);
-        snprintf(line, sizeof(line), "协议: 本机=%s 对端=%s 不一致=%u 次\r\n",
-                 version_proto_str(), peer_ver, (unsigned)mesh_proto_mismatch_count());
+
+        cli_print("=== 状态 ===\r\n");
+        // 身份与协议版本：跨层的全局上下文，先给一眼量级判断。
+        snprintf(line, sizeof(line),
+                 "角色: %s   node_id=%s   sysid=%u   名字=%s   协议: 本机=%s 对端=%s\r\n",
+                 role, node, (unsigned)mav_router_local_sysid(),
+                 name[0] ? name : "-", version_proto_str(), peer_ver);
         cli_print(line);
-        snprintf(line, sizeof(line), "丢包: 收包队列=%u 射频请求=%u 发送队列=%u UART=%u USB=%u\r\n",
+
+        cli_print("--- 驱动层 ---\r\n");
+        // 驱动层：射频/串口/USB 外设自身的收发与队列。丢失发生在本机硬件边界，
+        // 与上层协议无关，先看这层能排除"板子/接线/驱动"问题。
+        snprintf(line, sizeof(line),
+                 "射频: 就绪=%s  收包队列丢=%u  射频请求丢=%u  UART丢=%u  USB丢=%u\r\n",
+                 radio_is_ready() ? "是" : "否",
                  (unsigned)radio_rx_drop_count(), (unsigned)radio_req_drop_count(),
-                 (unsigned)rtos_tx_drop_count(), (unsigned)uart_fc_drop_count(),
-                 (unsigned)usb_cdc_drop_count());
+                 (unsigned)uart_fc_drop_count(), (unsigned)usb_cdc_drop_count());
+        cli_print(line);
+
+        cli_print("--- 中间层 ---\r\n");
+        // 中间层·链路：本机与邻居这一段链路上的安全（认证/重放）、
+        // 限流、占空比与协议一致性，问题出在"这一段链路"。
+        snprintf(line, sizeof(line),
+                 "链路: 占空比超限放行=%u  认证失败=%u  重放丢弃=%u  重同步=%u  限流丢弃=%u(控制类%u/超桶%u)  协议不一致=%u\r\n",
+                 (unsigned)duty_oversize_count(), (unsigned)mesh_drop_auth_count(),
+                 (unsigned)crypto_replay_drop_count(), (unsigned)crypto_replay_resync_count(),
+                 (unsigned)ratelimit_drop_count(), (unsigned)ratelimit_ctrl_drop_count(),
+                 (unsigned)ratelimit_oversize_count(), (unsigned)mesh_proto_mismatch_count());
+        cli_print(line);
+        // 中间层·网络：去重/TTL/路由/地址/分片等网络层状态维护。
+        // "发送队列丢"归此层：它反映的是中间层转发/发送路径消费不过来造成的背压，
+        // 不是射频硬件丢包（驱动层），也不是应用层主动削减流量。
+        snprintf(line, sizeof(line),
+                 "网络: 去重淘汰=%u  TTL丢弃=%u  路由过期=%u/淘汰=%u  地址过期=%u/淘汰=%u  分片槽淘汰=%u  发送队列丢=%u\r\n",
+                 (unsigned)mesh_dedup_evict_count(), (unsigned)mesh_drop_ttl_count(),
+                 (unsigned)route_expired_count(), (unsigned)route_evict_count(),
+                 (unsigned)addr_map_expired_count(), (unsigned)addr_map_evict_count(),
+                 (unsigned)frag_slot_evict_count(), (unsigned)rtos_tx_drop_count());
+        cli_print(line);
+        // 中间层·速率：ADR/信标/相位协商，属于链路自适应。
+        snprintf(line, sizeof(line),
+                 "速率: ADR 对齐=%s  信标=%u  多跳=%u  失步=%u  多锚点=%u  SF=%u  beacon_s=%s\r\n",
+                 adr_has_beacon() ? (adr_compat_mode() ? "降级" : "是") : "否",
+                 (unsigned)adr_beacon_count(), (unsigned)adr_beacon_hop_count(),
+                 (unsigned)adr_desync_count(), (unsigned)adr_multi_anchor_count(),
+                 (unsigned)adr_current_sf(), bcn[0] ? bcn : "-");
+        cli_print(line);
+
+        cli_print("--- 应用层 ---\r\n");
+        // 应用层·流量：应用产生的流量被策略削减/编号冲突，源头在应用。
+        snprintf(line, sizeof(line),
+                 "流量: 遥测降频=%u  sysid撞号=%u  node_id撞号=%u\r\n",
+                 (unsigned)mav_router_stream_drop_count(),
+                 (unsigned)mav_router_sysid_conflict_count(),
+                 (unsigned)mesh_id_conflict_count());
+        cli_print(line);
+        // 应用层·系统：整机资源与复位健康度，只有应用层能看到全局视角。
+        stats_t st;
+        stats_collect(&st);
+        snprintf(line, sizeof(line),
+                 "系统: heap=%lu  wdt复位=%lu  射频重建=%lu\r\n",
+                 (unsigned long)st.heap_free, (unsigned long)st.wdt_resets,
+                 (unsigned long)st.rf_reinit);
         cli_print(line);
     } else if (strcmp(cmd, "stats") == 0) {
         stats_t s;
