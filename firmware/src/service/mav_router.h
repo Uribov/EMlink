@@ -29,8 +29,8 @@ void mav_router_note_peer_sysid(uint8_t peer_sysid);
 // sysid 撞号次数（多机配置错误的现场证据）
 uint32_t mav_router_sysid_conflict_count(void);
 
-// 喂入一段 MAVLink 字节流（来自 q_uart_rx / q_usb_rx / mesh_rx_cb）
-// 内部按帧切分（0xFD + LEN + CRC），逐条调 mav_router_handle_msg
+// 喂入一条完整 MAVLink 消息（来自 mesh_rx_cb / 分片重组完成）：
+// CRC 校验通过后按 mesh 来源路由
 void mav_router_feed(const uint8_t* data, size_t len);
 
 // 处理一条完整 MAVLink 2 消息：按 payload 里的 target_sysid 决定「送本地串口」或「转 LoRa」

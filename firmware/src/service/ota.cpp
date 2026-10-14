@@ -333,10 +333,6 @@ void ota_stop() {
 
 bool ota_active() { return g_active; }
 
-void ota_handle() {
-    if (g_server) g_server->handleClient();
-}
-
 void ota_boot_confirm_tick(void) {
     if (g_boot_confirmed) return;
     if (millis() < OTA_BOOT_CONFIRM_MS) return;

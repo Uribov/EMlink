@@ -148,7 +148,6 @@ radio.begin(freq, bw, sf, cr, syncWord, pwr);
 | `q_usb_rx` | usb_task → mavlink_task | 地面站下行 MAVLink 字节流 |
 | `q_uart_tx` | mavlink_task → uart_task | 下发飞控 MAVLink |
 | `q_usb_tx` | mavlink_task → usb_task | 上送地面站 MAVLink |
-| `q_frag` | mavlink_task → frag | 待重组分片 |
 | `q_radio_hi` / `q_radio_lo` | mac / mesh / adr / ota / watchdog → rf_task | 射频请求（P0-2 射频单所有者）：hi=控制操作（CAD/切SF/suspend/resume/reset）+ ACK·控制帧 TX，lo=普通数据帧 TX；元素为请求指针 |
 
 > 发送队列拆成 3 个（`q_mac_tx_hi/med/lo`）实现优先级：QOS2→hi、QOS1→med、QOS0→lo；mac_task 按 hi→med→lo 顺序读，高优先级帧最多延迟 5ms。
@@ -162,7 +161,7 @@ radio.begin(freq, bw, sf, cr, syncWord, pwr);
 | `EV_LINK_LOST` | stats_task(3s 无上行) | failsafe_policy、LED |
 | `EV_LINK_RESTORED` | mac_task(ACK 恢复) | failsafe_policy、LED |
 | `EV_RF_FAULT` | radio(连续无响应) | watchdog |
-| `EV_CFG_CHANGED` | cli_task(save) | nvs_cfg→通知各模块重载 |
+| `EV_CFG_CHANGED` | cli_task(save) | main.cpp 的 `loop()` 轮询 → 重载 `g_cfg` 内存镜像 + 提示「射频/角色类参数需 reset」（P1-12 接线） |
 
 > 以上任务/队列/事件的句柄、优先级、事件位宏统一定义在 `firmware/src/rtos.h`（唯一真相源），各模块 `#include "rtos.h"` 引用，不重复创建。
 > **队列所有权**：队列只由 `rtos_comms_init()` 统一创建（幂等，必须最先调用），任何模块 `start` 内禁止再建；句柄注释标注「生产方 → 消费方」。
@@ -174,6 +173,7 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 → radio_start()            # 射频底层
 → adr_init()               # ADR：先停 SF10 等 BEACON
 → mac_start()              # 信道接入（mac_task 循环里跑 adr_tick）
+→ route_init() / addr_map_init() / frag_init()   # 纯内存表清零（P1-12 补接线：此前从未被调用）
 → mesh_start()             # 转发
 → mav_router_start()       # MAVLink 路由（被动收队列，先就位）
 → uart_fc_start()          # 飞控串口（上游，后跑）

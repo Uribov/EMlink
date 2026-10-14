@@ -8,7 +8,7 @@
 #include <Arduino.h>
 #include "../link/frame_codec.h"   // FRAME_MAX_PLAIN / FLAG_FRAG
 
-// 分片头（对应帧偏移 10~13 的 frag_hdr[4]）
+// 分片头（对应帧偏移 11~14 的 frag_hdr[4]）
 struct frag_hdr_t {
     uint8_t msg_id;      // 本组标识
     uint8_t frag_index;  // 第几片（0 起）

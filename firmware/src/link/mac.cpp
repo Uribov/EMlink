@@ -113,12 +113,6 @@ mac_result_t mac_send(const uint8_t* frame, size_t len, bool ack_req) {
     return lbt_ok ? MAC_OK : MAC_LBT_BUSY;
 }
 
-bool mac_should_ack(const uint8_t* frame, size_t len) {
-    if (len < 6) return false;
-    if ((frame[0] & 0x0F) != FRAME_DATA) return false;   // 只有数据帧要 ACK
-    return (frame[1] & FLAG_ACK_REQ) != 0;
-}
-
 void mac_send_ack(uint8_t src_id, uint16_t seq) {
     uint8_t buf[FRAME_MTU];
     frame_t f = {};

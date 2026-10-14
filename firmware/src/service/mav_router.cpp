@@ -280,7 +280,7 @@ void mav_router_feed(const uint8_t* data, size_t len) {
     // 来自 mesh 的完整 MAVLink 消息（mesh 每帧 payload 就是一条完整消息，
     // 分片重组后也是完整消息），无需字节流切帧，直接路由。
     if (len >= MAVLINK2_HEADER_LEN + MAVLINK2_CRC_LEN && mav_crc_ok(data, len)) {
-        route_msg(data, len, SRC_MESH);
+        mav_router_handle_msg(data, len);
     }
 }
 

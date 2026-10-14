@@ -16,6 +16,7 @@
 #include "link/mac.h"
 #include "link/adr.h"
 #include "net/mesh.h"
+#include "net/route.h"
 #include "service/mav_router.h"
 #include "service/frag.h"
 #include "service/addr_map.h"
@@ -90,6 +91,9 @@ void setup() {
     mac_start();
     mesh_init();
     mesh_set_rx_cb(on_mesh_rx);
+    route_init();
+    addr_map_init();
+    frag_init();
     mesh_start();
 
     // 4. MAVLink 路由（core1，被动收队列，先就位）
@@ -128,5 +132,13 @@ void loop() {
         }
     }
     ota_boot_confirm_tick();   // P1-5：系统健康后向 bootloader 确认固件（取消回滚）
+
+    // EV_CFG_CHANGED：CLI save 后置位 → 重载内存镜像并提示需 reset
+    if (evg && (xEventGroupGetBits(evg) & EV_CFG_CHANGED)) {
+        xEventGroupClearBits(evg, EV_CFG_CHANGED);
+        nvs_cfg_load(&g_cfg);
+        Serial.println("配置已保存：射频/角色类参数需 reset 重启生效");
+    }
+
     delay(10);
 }

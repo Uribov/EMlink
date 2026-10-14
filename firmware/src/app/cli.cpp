@@ -122,6 +122,12 @@ void cli_handle_line(const char* line) {
         snprintf(line, sizeof(line), "sysid=%u（本机 MAVLink 号）  sysid撞号=%u\r\n",
                  (unsigned)mav_router_local_sysid(), (unsigned)mav_router_sysid_conflict_count());
         cli_print(line);
+        nvs_cfg_get("beacon_s", val, sizeof(val));
+        snprintf(line, sizeof(line), "beacon_s=%s\r\n", val);
+        cli_print(line);
+        nvs_cfg_get("name", val, sizeof(val));
+        snprintf(line, sizeof(line), "name=%s\r\n", val[0] ? val : "-");
+        cli_print(line);
         snprintf(line, sizeof(line), "RF: %s\r\n",
                  radio_is_ready() ? "就绪" : "初始化失败（每 10s 重试，LED 红灯）");
         cli_print(line);

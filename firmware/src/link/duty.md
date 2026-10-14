@@ -14,7 +14,7 @@
 - **单帧超预算例外**（P1-2）：当 `airtime_ms >= 上限`（例：SF10 的 179B 分片 ≈1.64s > 100ms）——一律拒绝会让 `mac_send` **无限等** → **放行 + 计数告警**（`duty_oversize_count()`）。这是"合规 vs 可用性"的取舍，计数在 CLI `status` 里可见
 
 ## 对外接口
-见 `duty.h`：`duty_init / duty_reserve / duty_set_max / duty_oversize_count`
+见 `duty.h`：`duty_init / duty_reserve / duty_oversize_count`（上限是编译期常量 `DUTY_MAX_MS_PER_SEC`，无运行时 setter）
 
 ## 验收
 - 持续满负荷发包时，实测 1s 空中占比 ≈ 配置上限，不超限

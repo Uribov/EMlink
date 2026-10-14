@@ -21,8 +21,4 @@ bool duty_reserve(uint32_t airtime_ms) {
     return true;
 }
 
-void duty_set_max(uint32_t ms_per_sec) {
-    g_max_ms = ms_per_sec;
-}
-
 uint32_t duty_oversize_count(void) { return g_oversize; }

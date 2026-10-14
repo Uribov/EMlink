@@ -75,13 +75,11 @@
 #define Q_USB_RX_LEN        8     // usb_cdc → mav_router，地面站字节流块
 #define Q_UART_TX_LEN       8     // mav_router → uart_fc，下发字节流块
 #define Q_USB_TX_LEN        8     // mav_router → usb_cdc，上送字节流块
-#define Q_FRAG_LEN          8     // mav_router → frag，待重组分片
 
 // ---- 队列元素类型（统一字节块 + 元数据，各队列复用）----
 //   q_rf_rx          用 data/len/rssi/snr（原始线上帧 + 信号）
 //   q_mac_tx_*       用 data/len/qos/ack_req（待发帧 + QoS）
 //   q_uart_rx 等流队列 只用 data/len（字节流块）
-//   q_frag           用 data/len（分片帧，frag_hdr 已在帧内偏移 10~13）
 typedef struct {
     uint8_t  data[FRAME_MTU];
     uint16_t len;
@@ -100,7 +98,6 @@ extern QueueHandle_t q_uart_rx;
 extern QueueHandle_t q_usb_rx;
 extern QueueHandle_t q_uart_tx;
 extern QueueHandle_t q_usb_tx;
-extern QueueHandle_t q_frag;
 
 // ---- 按 QoS 投递发送队列（供 mesh/mav_router 统一调用）----
 static inline bool rtos_tx_enqueue(const queue_item_t* item) {

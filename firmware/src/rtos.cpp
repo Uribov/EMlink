@@ -13,7 +13,6 @@ QueueHandle_t q_uart_rx   = nullptr;
 QueueHandle_t q_usb_rx    = nullptr;
 QueueHandle_t q_uart_tx   = nullptr;
 QueueHandle_t q_usb_tx    = nullptr;
-QueueHandle_t q_frag      = nullptr;
 EventGroupHandle_t evg    = nullptr;
 
 static bool rtos_inited = false;
@@ -30,7 +29,6 @@ void rtos_comms_init() {
     q_usb_rx     = xQueueCreate(Q_USB_RX_LEN,    sizeof(queue_item_t));
     q_uart_tx    = xQueueCreate(Q_UART_TX_LEN,   sizeof(queue_item_t));
     q_usb_tx     = xQueueCreate(Q_USB_TX_LEN,    sizeof(queue_item_t));
-    q_frag       = xQueueCreate(Q_FRAG_LEN,      sizeof(queue_item_t));
 
     evg = xEventGroupCreate();
 }

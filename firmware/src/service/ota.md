@@ -42,7 +42,7 @@
 - 代价：若射频起不来是"配置写错"而非固件问题，回滚也救不了（要连 USB 用 CLI 改回参数）
 
 ## 对外接口
-见 `ota.h`：`ota_start / ota_stop / ota_active / ota_handle`（CLI 单步用）+ `ota_boot_confirm_tick`（main 的 loop 每轮调；开机自检）。
+见 `ota.h`：`ota_start / ota_stop / ota_active`（WebServer 轮询在 ota_task 内部，无对外单步接口）+ `ota_boot_confirm_tick`（main 的 loop 每轮调；开机自检）。
 
 ## 验收
 - CLI `wifi` → 手机搜到 `EMlink-<id>` 热点 → 浏览器 192.168.4.1 打开配置页

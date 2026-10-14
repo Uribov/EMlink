@@ -25,9 +25,6 @@ typedef enum {
 // 发送一帧：LBT -> 发送 -> (可选)等 ACK -> 退避重传
 mac_result_t mac_send(const uint8_t* frame, size_t len, bool ack_req);
 
-// 收到帧后判断是否需回 ACK（mesh_task 调用）
-bool mac_should_ack(const uint8_t* frame, size_t len);
-
 // 构造并发送 ACK（回给 src_id，echo 其 seq）
 void mac_send_ack(uint8_t src_id, uint16_t seq);
 
