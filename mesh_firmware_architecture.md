@@ -142,14 +142,14 @@ radio.begin(freq, bw, sf, cr, syncWord, pwr);
 | 队列 | 方向 | 内容 |
 |---|---|---|
 | `q_rf_rx` | rf_task → mesh_task | 收到的原始帧 |
-| `q_mac_tx` | mesh/mavlink → mac_task | 待发帧（带 QoS 优先级） |
+| `q_mac_tx_hi/med/lo` | mesh/mavlink → mac_task | 待发帧（按 QoS 分三档：QOS2/QOS1/QOS0） |
 | `q_uart_rx` | uart_task → mavlink_task | 飞控上行 MAVLink 字节流 |
 | `q_usb_rx` | usb_task → mavlink_task | 地面站下行 MAVLink 字节流 |
 | `q_uart_tx` | mavlink_task → uart_task | 下发飞控 MAVLink |
 | `q_usb_tx` | mavlink_task → usb_task | 上送地面站 MAVLink |
 | `q_frag` | mavlink_task → frag | 待重组分片 |
 
-> `q_mac_tx` 为**优先级队列**：QOS2 > QOS1 > QOS0，同类 FIFO。
+> 发送队列拆成 3 个（`q_mac_tx_hi/med/lo`）实现优先级：QOS2→hi、QOS1→med、QOS0→lo；mac_task 按 hi→med→lo 顺序读，高优先级帧最多延迟 5ms。
 
 ### 3.3 事件（信号旗）
 
@@ -195,10 +195,11 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 | 3 | `dst_id` | 1 | 目的节点地址；`0x00`=广播 |
 | 4–5 | `seq` | 2 | 源节点序号（LE，回绕） |
 | 6 | `ttl` | 1 | 剩余跳数，转发减一，0 丢弃 |
-| 7 | `orig_sysid` | 1 | 源 MAVLink sysid（发送者，供 addr_map 学习/分片重组键） |
-| 8 | `net_id` | 1 | 网络 ID（多网共存，0=默认网） |
-| 9–12 | `frag_hdr` | 4 | 分片头（§6），非分片帧填 0 |
-| 13–192 | `payload` | ≤180 | MAVLink 消息或分片数据 |
+| 7 | `relay_id` | 1 | 反向路径：广播帧=上一跳转发者 node_id；单播帧=下一跳 node_id；源发=0（§4.5） |
+| 8 | `orig_sysid` | 1 | 源 MAVLink sysid（发送者，供 addr_map 学习/分片重组键） |
+| 9 | `net_id` | 1 | 网络 ID（多网共存，0=默认网） |
+| 10–13 | `frag_hdr` | 4 | 分片头（§6），非分片帧填 0 |
+| 14–192 | `payload` | ≤179 | MAVLink 消息或分片数据 |
 | 193–194 | `crc16` | 2 | 帧级 CRC16（端到端完整性，可选但建议开） |
 
 > `proto`（flags[3:2]）payload 协议类型：0=MAVLink、1=CRSF、2=MSP、3=自定义。
@@ -226,7 +227,7 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 ### 4.5 路由（三级）
 
 1. **泛洪（默认）**：广播帧人人转发一次，简单可靠、抗节点移动，小网最优。
-2. **反向路径**：收到帧时记 `src_id ← 上一跳邻居`，回信走单播原路，省一半空口。
+2. **反向路径**：帧头 `relay_id`（偏移 7）记录转发路径——广播帧里填「上一跳转发者」，节点据此学 `src_id ← 上一跳`；单播回信时填「下一跳」，中继只认 `relay_id==自己` 的帧转发，省一半空口。无路径记录时回退广播。
 3. **路由表（预留，未启用）**：帧类型 5 已留位，节点数 >8 再上。
 
 ---
