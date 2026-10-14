@@ -9,13 +9,14 @@
 firmware/
   platformio.ini          # 多方案配置（每个 [env] = 一块板 + 一个射频）
   scripts/build_all.sh    # 批量编译所有方案（Linux）
+  lib/                    # 本地依赖库：mavlink2 + radiolib + neopixel（全离线）
   docs/
     CONCEPTS.md           # 基础概念（Arduino/PlatformIO/FreeRTOS 大白话科普）
     MODULE_INDEX.md       # 模块索引 + 依赖图 + 实现顺序
     HARDWARE_VARIANTS.md  # 多方案架构（怎么加新板/新射频）
     tool.md               # 环境工具清单（Windows/Linux 搭建）
   src/
-    main.cpp              # 入口（当前 P0：串口回显 + WS2818 点灯）
+    main.cpp              # 入口（按角色装配启动所有模块）
     pinmap.h              # 引脚入口（按宏 include boards/ + radios/）
     rtos.h                # FreeRTOS 对象清单（任务/队列/事件，唯一真相源）
     boards/               # 板级引脚（每块 MCU 板一个 .h）
@@ -61,14 +62,14 @@ firmware/
   pio run -t upload
   pio device monitor
   ```
-- 首次编译会联网下载 RadioLib + Adafruit NeoPixel 两个库。
+- 依赖库已全部本地化到 `lib/`（mavlink2 + radiolib + neopixel），**无需联网下载**。
 
 ## 5. 当前状态
 
 | 阶段 | 状态 |
 |---|---|
-| P0 骨架（编译通过 + 回显点灯） | 引脚已填全，待编译烧录验证 |
-| P1~P5 | 未开始 |
+| P0~P4 代码（18 模块） | 全实现 + 编译通过，待硬件 bring-up |
+| 文档 | 18 模块 .md 均「约束 + 实现架构」双结构 |
 
 ## 6. 上板前唯一待确认（非阻塞）
 
