@@ -260,7 +260,7 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 
 ## 5. MAC 与信道接入
 
-- **LBT（先听后说）**：发前 CAD 侦听 1 次；忙→随机退避 5–20ms 重试，最多 3 次；3 次仍忙→**硬发**（控制指令不可无限憋）。
+- **LBT（先听后说）**：发前 CAD 侦听（P0-3 修正：状态驱动轮询直到 `CAD_DONE`/`CAD_DETECTED`，超时按 SF/BW 推导）；忙 → 随机退避 5–20ms 重试，最多 3 次；3 次仍忙 → **硬发**（控制指令不可无限憋）。
 - **半双工**：RXEN/TXEN 切收发，发完立刻切回收听。
 - **ACK/重传**：`ack_req=1` 的帧，收方回 ACK；发方 300ms 未收到→重发，最多 3 次，退避 100→300→700ms。
 - **BEACON**：GCS 每 5s 广播一次（由 adr 模块管，固定 SF10 锚点），节点据此对齐速率表 + 评估邻居链路质量（RSSI/SNR）。
@@ -492,3 +492,4 @@ mavlink monitor on      （旁路观察 MAVLink，预留）
 - **主动路由表**：节点 >8 时上 `FRAME_ROUTE` 主动路由（§4.5 已留位）。
 - **真随机数源 / 密钥轮换**：crypto 现用静态密钥，将来可加开机协商、定期轮换。
 - **mavlink monitor**：CLI 旁路观察 MAVLink（调试用，已留命令位）。
+- **中断驱动 CAD**：LBT 的 CAD 现为状态驱动轮询（P0-3 已修），中断驱动方案（复用 DIO1）见 `firmware/src/drivers/radio-update.md`。

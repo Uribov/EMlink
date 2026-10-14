@@ -18,7 +18,7 @@
 1. 实例化：`SX1268 radio = new Module(PIN_LORA_NSS, PIN_LORA_DIO1, PIN_LORA_NRST, PIN_LORA_BUSY)`
 2. 收发切换：`radio.setRfSwitchPins(PIN_LORA_RXEN, PIN_LORA_TXEN)`（active-high）
 3. **禁止** `setDio2AsRfSwitchCtrl()`（DIO2 悬空）；晶振版不调 `setTCXO`
-4. CAD：`radio.startChannelScan()` + `radio.getChannelScanResult()` 判忙闲
+4. CAD：`radio.startChannelScan()` 启动 → **状态驱动轮询** `getChannelScanResult()` 直到 `CAD_DONE`/`CAD_DETECTED`（超时按 SF/BW 推导：5 符号 + 3ms，SF7≈8ms / SF10≈43ms；P0-3）
 5. 中断：DIO1 挂 GPIO 中断，ISR 内只发任务通知给 `rf_task`
 
 ## 对外接口
@@ -49,7 +49,7 @@ DIO1 上升沿中断 `radio_isr` → `vTaskNotifyGiveFromISR(g_rf_task)` → rf_
 3. 射频开关 active-high：`setRfSwitchPins(RXEN=1, TXEN=2)`
 4. 发送：`transmit(const_cast<uint8_t*>(data), len)`——RadioLib 签名非 const 但不改数据
 5. 收包：`readData(buf, maxlen)` 两参 + `getPacketLength()` 取实际长度（RadioLib 6.x）
-6. CAD：`startChannelScan()` + `getChannelScanResult()`（0=空闲 1=忙 负=错误）
+6. CAD（`radio_channelActivity`，LBT 用）：`startChannelScan()` 只**启动** CAD（非阻塞），随后**轮询** `getChannelScanResult()` 直到 `CAD_DONE`（返回 0=空闲）/`CAD_DETECTED`（返回 1=忙）；超时按 SF/BW 推导（5 符号 + 3ms），超时返回 -2、错误返回负值——**调用方（mac_lbt）把负值一律按"忙"处理**（P0-3；原实现在 CAD 完成前就读结果，导致永远判"空闲"）
 7. 运行时切 SF（`radio_set_sf`，ADR 用）：`standby() → setSpreadingFactor() → startReceive()`，**必须先 standby**（SX126x 芯片规定改调制参数不能在收发中途写寄存器）
 8. 暂停/恢复（`radio_suspend`/`radio_resume`，OTA 维护模式用）：suspend 设 `g_suspended=true` + standby，之后所有射频操作 no-op；resume 清标志 + startReceive
 9. **任务看门狗**（P0-1）：`rf_task` 开头 `watchdog_register_current()` 订阅；等 DIO1 通知带 **1s 超时**（`ulTaskNotifyTake(pdTRUE, 1000ms)`），超时也醒来 `watchdog_feed()`，保证长时间无包时不被 WDT 判死（通知是计数锁存，超时后到达的中断下一轮仍能命中，不丢包）

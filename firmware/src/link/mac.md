@@ -11,7 +11,7 @@
 - 被 `mesh`（转发）、`mav_router`（业务帧）调用
 
 ## 发送流程（`mac_send`）
-1. **LBT**：`radio_channelActivity()`；忙 → 随机退避 5~20ms 再试，最多 3 次
+1. **LBT**（P0-3 修正语义）：`radio_channelActivity()` 只有返回 **0（CAD 明确判定空闲）** 才放行；忙、错误、超时（状态未知）一律按"忙"处理 → 随机退避 5~20ms 再试，最多 3 次
 2. 3 次仍忙 → **硬发**（控制指令不能无限憋，返回 `MAC_LBT_BUSY` 标记）
 3. 发送 `radio_transmit`，失败返回 `MAC_TX_ERR`
 4. 若 `ack_req`：等 ACK，超时按退避 **100→300→700ms** 重传，最多 `MAC_MAX_RETRIES` 次
@@ -41,7 +41,7 @@
 
 ### mac_send 流程（同步阻塞）
 1. `duty_reserve()` 占空比限流（超限循环等 10ms）
-2. LBT `mac_lbt()`：CAD 最多 3 次，忙退避 5~20ms，3 次仍忙硬发
+2. LBT `mac_lbt()`：CAD 最多 3 次（状态驱动轮询直到 CAD 完成，SF7≈8ms / SF10≈43ms 每次）；忙/错误/超时一律退避 5~20ms 重试（每次退避后喂狗），3 次仍不可用硬发
 3. `radio_transmit()`
 4. 若 ack_req：轮询等 ACK（5ms 步进，**轮询内每次 `watchdog_feed()`**——多次重传累计可能超过 5s WDT 超时），超时退避 100→300→700ms 重传，最多 g_retries 次
 

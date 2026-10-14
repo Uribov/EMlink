@@ -36,15 +36,17 @@ void mac_on_ack_rx(uint8_t ack_src, uint16_t ack_seq) {
     }
 }
 
-// LBT：最多 3 次，忙则随机退避 5~20ms；3 次仍忙返回 false（硬发）
+// LBT：最多 3 次，忙则随机退避 5~20ms；3 次仍不可用返回 false（硬发）
+// 语义（P0-3）：0=空闲放行；1=忙、负=错误/超时（状态未知）→ 一律按“忙”处理，退避重试
 static bool mac_lbt() {
     for (int i = 0; i < MAC_LBT_MAX_TRIES; i++) {
         int16_t act = radio_channelActivity();
-        if (act <= 0) return true;   // 0=空闲；负=CAD 错误，别卡死，直接发
+        if (act == 0) return true;   // 信道空闲
         uint32_t wait = MAC_BACKOFF_MIN_MS + random(MAC_BACKOFF_MAX_MS - MAC_BACKOFF_MIN_MS + 1);
         vTaskDelay(pdMS_TO_TICKS(wait));
+        watchdog_feed();             // 退避等待也喂狗（mac_send 只由 mac_task 调用）
     }
-    return false;
+    return false;   // 3 次仍不可用 → 硬发（控制指令不可无限憋）
 }
 
 mac_result_t mac_send(const uint8_t* frame, size_t len, bool ack_req) {
@@ -54,6 +56,7 @@ mac_result_t mac_send(const uint8_t* frame, size_t len, bool ack_req) {
     uint32_t airtime = 5 + (uint32_t)len * 300 / 1000;
     while (!duty_reserve(airtime)) {
         vTaskDelay(pdMS_TO_TICKS(10));
+        watchdog_feed();   // 限流等待可能接近 1s，防 WDT 误触发
     }
 
     g_tx++;

@@ -19,6 +19,10 @@ static float g_last_rssi = 0.0f;
 static float g_last_snr  = 0.0f;
 static bool  g_suspended = false;   // OTA 维护模式：WiFi 与 LoRa 二选一
 
+// 当前调制参数（CAD 超时推导用；radio_init 设定、radio_set_sf 更新）
+static uint8_t g_cur_sf = LORA_DEF_SF;
+static float   g_cur_bw_khz = LORA_DEF_BW;
+
 // 就绪状态 + 初始化参数（射频失败后 rf_task 每 10s 用这些参数自动重试）
 static volatile bool g_radio_ready = false;
 static float g_init_freq, g_init_bw;
@@ -60,6 +64,8 @@ bool radio_init(float freq, float bw, uint8_t sf, uint8_t cr,
 
     attachInterrupt(digitalPinToInterrupt(PIN_LORA_DIO1), radio_isr, RISING);
     g_radio_ready = true;
+    g_cur_sf = sf;
+    g_cur_bw_khz = bw;
     return true;
 #else
     g_radio_ready = false;
@@ -119,16 +125,29 @@ int16_t radio_readPacket(uint8_t* buf, size_t maxlen, size_t* len,
 #endif
 }
 
-// CAD 侦听：0=空闲 1=忙 负=错误码
+// CAD 侦听（LBT 用）：状态驱动轮询，直到 CAD 完成或超时（P0-3）
+//   0 = 空闲（CAD_DONE）；1 = 忙（CAD_DETECTED）；负 = 错误/超时（调用方按“忙”处理）
 int16_t radio_channelActivity() {
 #if defined(RADIO_SX126X)
     if (g_suspended || !g_radio || !g_radio_ready) return -1;
+
+    // 启动 CAD（非阻塞：RadioLib 只把芯片设为 CAD 模式就返回）
     int16_t st = g_radio->startChannelScan();
     if (st != RADIOLIB_ERR_NONE) return st;
-    int16_t res = g_radio->getChannelScanResult();
-    if (res == RADIOLIB_CHANNEL_FREE) return 0;
-    if (res == RADIOLIB_PREAMBLE_DETECTED || res == RADIOLIB_LORA_DETECTED) return 1;
-    return res;
+
+    // CAD 硬件耗时 ≈ 若干个符号周期 → 按当前 SF/BW 推导超时（符号时长 us = 2^SF / BW）
+    // 5 个符号 + 3ms 余量；轮询期间 vTaskDelay(1) 让出 CPU（rf_task 优先级更高，不受影响）
+    uint32_t tsym_us = ((uint32_t)1 << g_cur_sf) * 1000u / (uint32_t)g_cur_bw_khz;   // 例：SF7/125k → 1024us
+    uint32_t timeout_ms = tsym_us * 5u / 1000u + 3u;                                  // 例：SF7 → 8ms，SF10 → 44ms
+    uint32_t t0 = millis();
+    while (millis() - t0 <= timeout_ms) {
+        int16_t res = g_radio->getChannelScanResult();
+        if (res == RADIOLIB_CHANNEL_FREE) return 0;                                  // CAD_DONE → 空闲
+        if (res == RADIOLIB_LORA_DETECTED || res == RADIOLIB_PREAMBLE_DETECTED) return 1;  // CAD_DETECTED → 忙
+        // RADIOLIB_ERR_UNKNOWN：CAD 尚未完成 → 继续轮询
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    return -2;   // 超时：状态未知 → 调用方按“忙”处理
 #else
     return -1;
 #endif
@@ -145,6 +164,7 @@ bool radio_set_sf(uint8_t sf) {
     if (st != RADIOLIB_ERR_NONE) return false;
     st = g_radio->setSpreadingFactor(sf);
     if (st != RADIOLIB_ERR_NONE) return false;
+    g_cur_sf = sf;
     return g_radio->startReceive() == RADIOLIB_ERR_NONE;
 #else
     return false;
