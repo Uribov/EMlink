@@ -39,6 +39,15 @@ GCS HEARTBEAT 投 `q_mac_tx` 时设 **QOS2 最高优先级**，飞控自己数�
 - **必须排除"自己中继回来的帧"**：本机广播帧被邻居转回来时 `src_id` 仍是本机 node_id（转发只改 `relay_id`/`ttl`），否则会自己撞自己、计数虚高
 - 现场证据：CLI `status` 的 `sysid撞号=N`（持续增长即确有他机用同号）；固件不自动改号——**自动改号等于飞行中改身份**，需先与 GCS 约定（P1-8 遗留项）
 
+## 流限速（P1-10，只作用于"转 LoRa"方向）
+QGC 默认请求 10~50Hz 遥测，而 10% 占空比下一秒最多发一两帧满帧 → 高频遥测必须按类型降频。
+- 表驱动：`g_stream[]` 给已知高频遥测设**最小转发间隔**（SYS_STATUS 1s、GPS_RAW_INT/ATTITUDE/GLOBAL_POSITION_INT/VFR_HUD 500ms、SCALED_IMU/RC_CHANNELS 200ms）
+- **保命/遥控类永远放行**：HEARTBEAT 表项 `min_interval_ms=0`，COMMAND/PARAM/MISSION 等靠"表里没有即放行"免限速
+- **表外 msgid 一律放行**（不认识的不擅自丢，总量交给 `ratelimit` 兜底）
+- 超限 → 计数 `mav_router_stream_drop_count()`（CLI `status` 的「遥测降频」），本帧不转 LoRa
+- 只挂在 `to_lora` 分支：本地串口/USB 方向**不限速**（那是"到飞控/到电脑"的近距离通路，不占空口）
+- 为什么不在 `ratelimit` 做：令牌桶只管总量/优先级，**看不懂 MAVLink 语义**，无法按消息 ID 区分
+
 ## 验收（P3）
 - 地面站同时看到 2 架飞机（APM 或 PX4，均配 MAVLink 2）；能读参数、传航点、收遥测
 - 掐断上行后，GCS HEARTBEAT 仍在 1 帧内被中转（无滞留）
