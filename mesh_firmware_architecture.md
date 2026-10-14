@@ -448,7 +448,7 @@ mavlink monitor on      （旁路观察 MAVLink，预留）
 - 非 GCS 开机停 SF10 等 BEACON，收到即对齐周期起点；`radio_set_sf`（standby→setSpreadingFactor→startReceive）运行时切 SF
 - **P1-3 兜底**：信标 ttl 改为 `MESH_BEACON_TTL`(=2) 可被中继转发一次，但**只有直收（`relay_id==0`）的信标参与对齐**（多跳时延无法补偿）；失去对齐基准 15s（权威信标超时，或"只见多跳信标却始终等不到权威信标"）→ **降级到固定速率兼容模式**并告警，重新收到权威信标即自愈；半周期内出现第二个锚点只计数不选举；对齐点按信标 ToA 做补偿（GCS 的时间戳是"入队"时刻，本机基准是"收完"）
 - 真动态自适应（按邻居 RSSI/SNR 调 SF/BW/功率）+ **多 GCS 主从选举**留后演进
-- 位置：`link/adr`（依赖 radio 的 radio_set_sf/airtime_ms + mesh 的 BEACON + role 判 GCS）
+- 位置：`link/adr`（依赖 radio 的 radio_set_sf/airtime_ms + mesh 的 BEACON + `service/role_state` 判 GCS——D2 前是 `app/role`，属中间层反向依赖应用层，已修）
 
 ### 13.4 远程参数同步（FRAME_CFG）—— ✅ 已实现
 - 帧类型 `FRAME_CFG`（=6）；GCS CLI `cfg <键> <值>` 广播 `key=value` 给全网

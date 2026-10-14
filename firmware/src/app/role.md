@@ -30,8 +30,9 @@
 按 NVS 里的 `role` 决定这台机器"当谁"——AIR（接飞控）/ GCS（接地站）/ RELAY（纯中继）。
 
 ### 实现
-- `role_apply(role)`：记下角色；本机 MAVLink sysid 按 **NVS `sysid` 优先**（`sysid=0` 才按角色默认：AIR=1、GCS=255、RELAY=0）→ 调 `mav_router_init(sysid)`（P1-7 前写死角色默认值，多机同场必撞号）
-- `role_current()`：返回当前角色（stats 显示、LED 用）
+- `role_apply(role)`：**先把角色写进基础支撑**（`role_state_set(role)`，D2）；本机 MAVLink sysid 按 **NVS `sysid` 优先**（`sysid=0` 才按角色默认：AIR=1、GCS=255、RELAY=0）→ 调 `mav_router_init(sysid)`（P1-7 前写死角色默认值，多机同场必撞号）
+- `role_current()`：包装 `role_state_get()`，返回当前角色（stats 显示、LED 用）
+- **D2 分层**：角色**状态**=`service/role_state`（基础支撑，跨层共享、唯一真源），角色**常量** `ROLE_*`=`service/nvs_cfg.h`；本模块只负责**决定**角色（读 NVS + 选 sysid）。中间层（`link/adr`、`service/ota`）改用 `role_state_get()` 读角色，**不再 include `app/`** —— `tools/check_deps.py` 的硬规则违规因此清零
 
 ### 三角色数据通路
 | 角色 | 数据通路 |

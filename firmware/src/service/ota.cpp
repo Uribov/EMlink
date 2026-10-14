@@ -11,7 +11,7 @@
 #include "nvs_cfg.h"
 #include "crypto.h"
 #include "../drivers/radio.h"
-#include "../app/role.h"
+#include "../service/role_state.h"
 #include "../net/mesh.h"
 #include <WiFi.h>
 #include <WebServer.h>

@@ -43,7 +43,7 @@ def rel(path):
 
 def is_base_support(r):
     return r in ("firmware/src/rtos.h", "firmware/src/rtos.cpp") or \
-        re.match(r"firmware/src/service/(watchdog|nvs_cfg)\.(h|cpp)$", r) is not None
+        re.match(r"firmware/src/service/(watchdog|nvs_cfg|role_state)\.(h|cpp)$", r) is not None
 
 
 def layer_of(r):

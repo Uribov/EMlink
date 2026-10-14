@@ -1,13 +1,14 @@
 // ============================================================
 // adr.cpp —— BEACON 锚定固定速率表
-// 依赖 radio.h / mesh.h（发 BEACON）/ role.h（判断 GCS）
+// 依赖 radio.h / mesh.h（发 BEACON）/ role_state.h（判断 GCS）
 // 5s 周期：0~1s SF10（慢速窗），1~5s SF7（快速窗）。
 // GCS 在周期起点发 BEACON（SF10）；非 GCS 停在 SF10 等 BEACON，收到后对齐。
 // ============================================================
 #include "adr.h"
 #include "../drivers/radio.h"
 #include "../net/mesh.h"
-#include "../app/role.h"
+#include "../service/role_state.h"
+#include "../service/nvs_cfg.h"
 #include "../link/frame_codec.h"
 
 static volatile uint8_t  g_sf = ADR_SF_SLOW;   // 当前 SF（默认先停慢速等 BEACON）
@@ -56,7 +57,7 @@ void adr_on_beacon(uint8_t src_id, uint8_t relay_id) {
     // 权威信标：本机直收
     g_beacon_count++;
 
-    if (role_current() == ROLE_GCS) {
+    if (role_state_get() == ROLE_GCS) {
         // GCS 自己就是锚点：不跟随别的锚点（否则两个 GCS 互相把相位拉来拉去）
         if (g_anchor_src_id != 0 && g_anchor_src_id != src_id) g_multi_anchor++;
         return;
@@ -96,7 +97,7 @@ static uint8_t sf_for_phase(uint32_t phase) {
 
 void adr_tick() {
     uint32_t now = millis();
-    uint8_t role = role_current();
+    uint8_t role = role_state_get();
 
     // P1-3 失步检测（只对非 GCS）：
     //  · 曾对齐过 → 权威信标超过 ADR_BEACON_LOST_MS 没来

@@ -4,13 +4,12 @@
 // ============================================================
 #include "role.h"
 #include "../service/mav_router.h"
+#include "../service/role_state.h"
 
-static uint8_t g_role = ROLE_UNSET;
-
-uint8_t role_current() { return g_role; }
+uint8_t role_current() { return role_state_get(); }
 
 void role_apply(uint8_t role) {
-    g_role = role;
+    role_state_set(role);
     // 本机 MAVLink sysid：优先用 NVS 配置（sysid=0 表示"按角色默认"），多机靠它区分
     cfg_t c;
     uint8_t sysid = 0;
