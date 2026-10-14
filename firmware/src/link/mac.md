@@ -7,6 +7,7 @@
 - `radio.h`（`radio_channelActivity` 做 CAD，`radio_transmit` 发包）
 - `frame_codec.h`（解析 `ack_req` / `src_id` / `seq`）
 - `adr.h`（mac_task 循环顶部调 `adr_tick` 切 SF）
+- `service/watchdog.h`（mac_task 订阅任务看门狗；mac_send 等 ACK 期间喂狗）
 - 被 `mesh`（转发）、`mav_router`（业务帧）调用
 
 ## 发送流程（`mac_send`）
@@ -42,7 +43,7 @@
 1. `duty_reserve()` 占空比限流（超限循环等 10ms）
 2. LBT `mac_lbt()`：CAD 最多 3 次，忙退避 5~20ms，3 次仍忙硬发
 3. `radio_transmit()`
-4. 若 ack_req：轮询等 ACK（5ms 步进），超时退避 100→300→700ms 重传，最多 g_retries 次
+4. 若 ack_req：轮询等 ACK（5ms 步进，**轮询内每次 `watchdog_feed()`**——多次重传累计可能超过 5s WDT 超时），超时退避 100→300→700ms 重传，最多 g_retries 次
 
 ### ACK 机制（跨模块，经 mesh_task）
 - mesh_task 收 ack_req 数据帧 → `mac_send_ack(src_id, seq)`（echo seq，ack_req=0 防风暴）
@@ -50,6 +51,7 @@
 - ACK 等待用轮询标志而非任务通知（mac_send 可能被 mesh_task 同步调用，避免通知绑定错误任务）
 
 ### mac_task（core0 prio 20）
+任务开头 `watchdog_register_current()` 订阅任务看门狗，循环每轮 `watchdog_feed()`（P0-1）。
 循环顶部先调 `adr_tick()`（ADR 周期切 SF，与收发同任务串行不冲突），再按 hi→med→lo 读 3 个优先级队列（hi/med 非阻塞，lo 5ms 超时），逐帧 mac_send
 
 ### 优先级队列

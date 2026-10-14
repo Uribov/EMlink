@@ -134,6 +134,7 @@ radio.begin(freq, bw, sf, cr, syncWord, pwr);
 | `ota_task` | 1 | 6 | WiFi Web 管理（CLI `wifi` 触发后创建，退出即删） |
 
 > 核0 = 射频/信道/组网（时间敏感，独占不被打断）；核1 = 交互与协议（节奏慢）。
+> **看门狗订阅**（P0-1 修正）：`rf/mac/mesh/mavlink/stats` 五个任务各自 `watchdog_register_current()` 订阅 + 循环内 `watchdog_feed()`（5s 不喂 → panic 复位）；**loopTask 不订阅**（Arduino 的 loopTask 只有 `enableLoopWDT()` 后才喂狗，曾导致上板 5s 重启循环）。
 > **核心绑定**：LoRa 射频 + WiFi 栈都占 core0；OTA 维护模式二者**二选一**（`radio_suspend`/`resume`，§13.2），不进维护模式时不并存。
 > **任务函数归属**：任务函数是各模块 `.cpp` 内 `static` 实现，由模块的 `xxx_start()` 创建（仿 PX4 模块自包含），`main.cpp` 的 `setup()` 按角色依次调用。`ota_task` 例外——按需动态创建/删除。
 
@@ -303,7 +304,7 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 1. **心跳优先中转**：GCS HEARTBEAT 进 `q_mac_tx` 最高优先级，绝不在本节点滞留。返航判定是**飞控自己**数心跳超时，固件只保证心跳不误时。
 2. **链路看门狗**：AIR 侧 3s 无上行→`EV_LINK_LOST`，告警、停止无效转发，等飞控超时接管。
 3. **射频卡死自救**：连续 N 次无响应→软复位射频芯片（NRST），再不行重启整机；计 `rf_reinit`。
-4. **双看门狗**：任务级 SW WDT + HW WDT（RTC/看门狗定时器兜底）。
+4. **任务看门狗**（P0-1 修正）：`rf/mac/mesh/mavlink/stats` 各任务自行订阅（`watchdog_register_current()`）+ 循环内喂狗，5s 超时 → panic 复位；IDF 中断看门狗（INT_WDT）常开，兜底 ISR 长时间占用。（原文"双看门狗：任务级 SW WDT + HW WDT（RTC）"的 HW 部分未实现，已按实况修正。）
 5. **禁止双供电（硬约束）**——供电电路（已定案）与电源/接口状态机：
 
    供电电路：

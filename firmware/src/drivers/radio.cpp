@@ -158,9 +158,14 @@ void radio_resume() {
 // ---- rf_task：DIO1 中断 -> 读包 -> 投 q_rf_rx ----
 static void rf_task_func(void* arg) {
     (void)arg;
+    watchdog_register_current();
     radio_startReceive();
     for (;;) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);   // 等 DIO1 中断
+        watchdog_feed();   // 每轮先喂狗：无论收包还是超时都要喂
+        // 带 1s 超时等 DIO1 中断：超时也醒来喂狗，避免任务被 WDT 判定卡死
+        if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000)) == 0) {
+            continue;   // 超时（无包）：不读包，直接进入下一轮
+        }
         uint8_t buf[FRAME_MTU];
         size_t len = 0;
         float rssi, snr;

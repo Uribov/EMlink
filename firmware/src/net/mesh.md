@@ -54,6 +54,7 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 8. 投递本机（dst=0 或 dst=自己；类型 DATA/NACK/CFG）：若 `enc` 先 `crypto_open_frame` 解密，再 `g_rx_cb`
 9. 转发判定（密文原样转发）
 - 循环带 100ms 超时收帧，超时也调 `frag_tick()`（缺件 NACK 检查）
+- 任务开头 `watchdog_register_current()` 订阅任务看门狗；循环每轮 `watchdog_feed()`（**含 100ms 超时走 frag_tick 的分支**，P0-1）
 
 ### 转发判定（relay_id 语义，架构 §4.5）
 - 广播（dst=0）：人人转发一次，relay=本机

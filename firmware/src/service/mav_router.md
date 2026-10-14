@@ -73,3 +73,4 @@ LoRa mesh ──> on_mesh_rx ──> mav_router_feed（完整消息，不走状�
 
 ### mavlink_task（核1 优先级12）
 从 q_uart_rx / q_usb_rx 读字节流块，分别 feed；无 mesh 帧（mesh 帧走 main.cpp 的 on_mesh_rx 回调）
+- 任务开头 `watchdog_register_current()` 订阅任务看门狗，循环每轮 `watchdog_feed()`（P0-1）

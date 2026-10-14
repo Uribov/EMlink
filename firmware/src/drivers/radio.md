@@ -50,6 +50,7 @@ DIO1 上升沿中断 `radio_isr` → `vTaskNotifyGiveFromISR(g_rf_task)` → rf_
 6. CAD：`startChannelScan()` + `getChannelScanResult()`（0=空闲 1=忙 负=错误）
 7. 运行时切 SF（`radio_set_sf`，ADR 用）：`standby() → setSpreadingFactor() → startReceive()`，**必须先 standby**（SX126x 芯片规定改调制参数不能在收发中途写寄存器）
 8. 暂停/恢复（`radio_suspend`/`radio_resume`，OTA 维护模式用）：suspend 设 `g_suspended=true` + standby，之后所有射频操作 no-op；resume 清标志 + startReceive
+9. **任务看门狗**（P0-1）：`rf_task` 开头 `watchdog_register_current()` 订阅；等 DIO1 通知带 **1s 超时**（`ulTaskNotifyTake(pdTRUE, 1000ms)`），超时也醒来 `watchdog_feed()`，保证长时间无包时不被 WDT 判死（通知是计数锁存，超时后到达的中断下一轮仍能命中，不丢包）
 
 ### 故障自救（架构 §8.2）
 - `radio_transmit` 连续 3 次失败 → `watchdog_rf_fault()`（软复位 NRST，累计 3 次整机重启）

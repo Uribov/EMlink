@@ -10,6 +10,7 @@
 #include "../service/nvs_cfg.h"
 #include "../service/crypto.h"
 #include "../service/frag.h"
+#include "../service/watchdog.h"
 
 // ---- 去重表 ----
 #define MESH_MAX_SRC 16
@@ -316,8 +317,10 @@ uint32_t mesh_last_rx_ms()     { return g_last_rx_ms; }
 // ---- mesh_task：收帧 -> 解码 -> ACK/去重/TTL -> 投递/转发 ----
 static void mesh_task_func(void* arg) {
     (void)arg;
+    watchdog_register_current();
     queue_item_t item;
     for (;;) {
+        watchdog_feed();
         // 带超时收帧：超时也跑 frag_tick（缺件 NACK 检查，~100ms 粒度）
         if (xQueueReceive(q_rf_rx, &item, pdMS_TO_TICKS(100)) != pdTRUE) {
             frag_tick();

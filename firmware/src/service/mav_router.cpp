@@ -12,6 +12,7 @@
 #include "../drivers/uart_fc.h"
 #include "../drivers/usb_cdc.h"
 #include "../service/nvs_cfg.h"
+#include "../service/watchdog.h"
 #include <common/mavlink.h>      // lib/mavlink2
 
 // 来源
@@ -285,8 +286,10 @@ static void feed_usb(const uint8_t* data, size_t len) {
 // ---- mavlink_task：从 q_uart_rx / q_usb_rx 收 MAVLink 字节流 ----
 static void mavlink_task_func(void* arg) {
     (void)arg;
+    watchdog_register_current();
     queue_item_t item;
     for (;;) {
+        watchdog_feed();
         if (xQueueReceive(q_uart_rx, &item, 0) == pdTRUE) {
             feed_uart(item.data, item.len);
         }

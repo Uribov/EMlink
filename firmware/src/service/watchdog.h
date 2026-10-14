@@ -5,10 +5,13 @@
 // ============================================================
 #include <Arduino.h>
 
-// 初始化（任务级 SW WDT + 硬件 WDT）
+// 初始化（任务级 SW WDT + 硬件 WDT）：只做初始化，不订阅任何任务
 void watchdog_init();
 
-// 喂狗（各长任务周期调用）
+// 订阅当前任务到 WDT：调用后必须在该任务循环里周期调用 watchdog_feed()
+void watchdog_register_current();
+
+// 喂狗：喂的是当前任务，必须由已订阅的任务自己调用
 void watchdog_feed();
 
 // 射频故障上报（射频芯片连续无响应时）：

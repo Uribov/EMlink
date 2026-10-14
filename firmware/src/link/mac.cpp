@@ -9,6 +9,7 @@
 #include "../drivers/radio.h"
 #include "duty.h"
 #include "../service/nvs_cfg.h"
+#include "../service/watchdog.h"
 
 static TaskHandle_t g_mac_task = nullptr;
 static uint32_t g_ack_timeout_ms = MAC_ACK_TIMEOUT_MS;
@@ -79,6 +80,7 @@ mac_result_t mac_send(const uint8_t* frame, size_t len, bool ack_req) {
         uint32_t start = millis();
         while (!g_ack_arrived && (millis() - start < g_ack_timeout_ms)) {
             vTaskDelay(pdMS_TO_TICKS(5));
+            watchdog_feed();   // mac_send 只由 mac_task 调用，属已订阅任务；多次重传累计可能超过 WDT 超时
         }
         g_waiting_ack = false;
 
@@ -128,8 +130,10 @@ uint32_t mac_retries()    { return g_retry; }
 // ---- mac_task：从 q_mac_tx 读待发帧，mac_send 发送 ----
 static void mac_task_func(void* arg) {
     (void)arg;
+    watchdog_register_current();
     queue_item_t item;
     for (;;) {
+        watchdog_feed();
         // ADR 周期 tick（与收发同任务串行，切 SF 不会与 SPI 冲突）
         adr_tick();
 

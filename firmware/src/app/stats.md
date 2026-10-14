@@ -21,7 +21,7 @@
 - 完整颜色×节奏映射表见同目录 `led_states.md`
 
 ## 关键实现点
-- `stats_task`（核1，优先级 4）：采集 → 更新 LED → `watchdog_feed()`
+- `stats_task`（核1，优先级 4）：任务开头 `watchdog_register_current()` 订阅 WDT → 采集 → 更新 LED → `watchdog_feed()`（喂自己）
 - 失联判定：`failsafe_s`（默认 3s）无上行 → 发 `EV_LINK_LOST`
 
 ## 对外接口
@@ -38,7 +38,7 @@
 - `g_link_was_lost`：失联边沿检测
 
 ### stats_task 每 1s 按序做的事
-1. `watchdog_feed()`
+1. `watchdog_feed()`（先 `watchdog_register_current()` 订阅自己；loopTask 已不再订阅 WDT，见 `watchdog.md`）
 2. `power_usb_present()`（内部做 USB 插拔检测并发 EV_USB_PLUG/UNPLUG）
 3. 失联判定：`millis() - mesh_last_rx_ms() > failsafe_s*1000` → 置 EV_LINK_LOST；恢复 → EV_LINK_RESTORED（边沿触发）
 4. 事件分发：读事件位 `(USB_PLUG|USB_UNPLUG|LINK_LOST|LINK_RESTORED)` → `failsafe_on_event()` → 清位

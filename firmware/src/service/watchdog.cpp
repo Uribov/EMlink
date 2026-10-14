@@ -13,10 +13,17 @@ static uint8_t  g_rf_fault_count = 0;
 
 void watchdog_init() {
     esp_task_wdt_init(5, true);   // 5s 超时，超时 panic
-    esp_task_wdt_add(nullptr);    // 把调用者（loopTask）加入 WDT
+    // 只做初始化，不订阅任何任务；需要被监视的任务自己调用 watchdog_register_current()
+}
+
+void watchdog_register_current() {
+    // 订阅当前任务。已订阅（ESP_ERR_INVALID_ARG）或未初始化（ESP_ERR_INVALID_STATE）
+    // 均静默忽略，不打印、不返回错误。
+    esp_task_wdt_add(nullptr);
 }
 
 void watchdog_feed() {
+    // 喂的是当前任务，必须由已订阅的任务自己调用
     esp_task_wdt_reset();
 }
 

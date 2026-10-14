@@ -84,6 +84,7 @@ static bool g_link_was_lost = false;
 
 static void stats_task_func(void* arg) {
     (void)arg;
+    watchdog_register_current();
     for (;;) {
         watchdog_feed();
         power_usb_present();   // 内部做 USB 插拔事件检测
