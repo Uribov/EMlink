@@ -28,3 +28,29 @@ help                  帮助
 
 ## 验收（P0）
 - 敲 `get` 能打印全部配置；`set power 20` + `save` 重启后仍生效
+
+## 当前实现架构（供人和子 agent 阅读）
+
+### 一句话
+插 USB 弹出来的命令行（CDC1），配置/查状态/调试的入口。
+
+### cli_task（核1 优先级8）
+- 读 `Serial1`（CDC1），行缓冲 + 回车解析，回显字符
+- 循环里逐字符读，凑满一行（`\r`/`\n`）就调 `cli_handle_line`
+
+### 命令表（cli_handle_line 分派）
+| 命令 | 动作 |
+|---|---|
+| `role air\|gcs\|relay` | `nvs_cfg_set("role", ...)` |
+| `set <key> <val>` | `nvs_cfg_set(key, val)` |
+| `get [key]` | `nvs_cfg_get`（无 key 打印全部） |
+| `save` | 发 `EV_CFG_CHANGED`（各模块重载） |
+| `reset` | `esp_restart()` |
+| `status` / `stats` | 打印状态 / `stats_print` |
+| `help` | 帮助 |
+
+### 依赖
+- `usb_cdc`（CDC1 收发）、`nvs_cfg`（读写）、`stats`（stats 命令）
+
+### 预留命令（架构 §9 里有、尚未实现）
+`scan`（信道扫描）、`ping`（测通断）、`mavlink monitor`（旁路观察）——待 P5 补

@@ -35,3 +35,22 @@
 
 ## 验收（P0）
 - 断电重启后 `get` 读到的配置与 `save` 前一致
+
+## 当前实现架构（供人和子 agent 阅读）
+
+### 一句话
+所有配置的"仓库"——读写 ESP32 的 NVS（掉电不丢的存储），CLI 的 set/get/save 都落到这里。
+
+### 数据结构
+- `cfg_t`：内存镜像（role/node_id/sysid/freq/sf/bw/cr/power/syncword/uart_baud/ttl/ack_timeout_ms/retries/beacon_s/failsafe_s/name）
+- NVS 命名空间 `"mesh"`，用 Arduino `Preferences` 封装
+
+### 接口
+- `nvs_cfg_load(cfg_t*)`：读全部；返回 false = `role` 未设（上层强制进「仅 USB 配置」态）
+- `nvs_cfg_save(cfg_t*)`：写全部
+- `nvs_cfg_factory(cfg_t*)`：填默认值
+- `nvs_cfg_set/get(key, val)`：单项字符串读写（CLI 的 `set/get` 用），内部做字符串↔数值映射（如 "air"↔ROLE_AIR）
+
+### 调用时机
+- 上电：main.cpp `nvs_cfg_load` 读一次，分发给各模块（radio_init/mac_set_params 等）
+- 运行中：CLI `set` 单项写 NVS；`save` 后发 EV_CFG_CHANGED，各模块重载

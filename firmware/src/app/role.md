@@ -22,3 +22,22 @@
 
 ## 验收（P0）
 - 设 `role air` 重启 → 只开 UART+LoRa 通路；设 `role gcs` → 只开 USB+LoRa 通路
+
+## 当前实现架构（供人和子 agent 阅读）
+
+### 一句话
+按 NVS 里的 `role` 决定这台机器"当谁"——AIR（接飞控）/ GCS（接地站）/ RELAY（纯中继）。
+
+### 实现
+- `role_apply(role)`：记下角色，并按角色定本机 MAVLink sysid（AIR=1、GCS=255）→ 调 `mav_router_init(sysid)`
+- `role_current()`：返回当前角色（stats 显示、LED 用）
+
+### 三角色数据通路
+| 角色 | 数据通路 |
+|---|---|
+| AIR | UART(飞控) ↔ mesh ↔ LoRa，mav_router 用飞控 sysid |
+| GCS | USB CDC0(QGC) ↔ mesh ↔ LoRa，mav_router 用 255 |
+| RELAY | 仅 mesh 转发，不接飞控/USB 数据 |
+
+### 注意
+实际各模块的 `xxx_start()` 启动顺序在 **main.cpp 的 setup()**（架构 §3.4），role 模块只负责"决定身份 + 定 sysid"，不负责启动其它模块。

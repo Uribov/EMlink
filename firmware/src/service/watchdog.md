@@ -23,3 +23,27 @@
 ## 验收（P4）
 - 人为卡死射频 SPI → 自动 `rf_reinit`，射频恢复
 - 人为死循环某任务 → SW WDT 复位该任务，整机不崩
+
+## 当前实现架构（供人和子 agent 阅读）
+
+### 一句话
+程序跑飞、射频卡死时的"兜底"。两层：任务级看门狗 + 射频自救。
+
+### 看门狗（任务级 SW WDT）
+- `watchdog_init()`：`esp_task_wdt_init(5s, panic)` + 把 loopTask 加进 WDT
+- `watchdog_feed()`：stats_task 每 1s 喂一次
+- 5s 不喂 → 触发 panic（架构 §8.2 第 4 条）
+
+### 射频自救（架构 §8.2 第 3 条）
+```
+watchdog_rf_fault() 被 radio 调用（连续 3 次发送失败 / init 失败）
+  ├─ 第 1、2 次：radio_hardReset()（拉 NRST 软复位射频芯片）+ rf_reinits++
+  └─ 第 3 次：esp_restart() 整机重启 + wdt_resets++
+```
+
+### 触发源（radio.cpp）
+- `radio_transmit` 连续 3 次失败 → `watchdog_rf_fault()`
+- `radio_init` 失败 → `watchdog_rf_fault()`
+
+### 统计接口
+`watchdog_wdt_resets()` / `watchdog_rf_reinits()`，stats 采集显示

@@ -19,3 +19,22 @@
 
 ## 验收（P0）
 - 飞控串口回环：自发自收无丢字节；波特率 115200 长时间跑无溢出
+
+## 当前实现架构（供人和子 agent 阅读）
+
+### 一句话
+飞控（Pixhawk）接在 **UART0**（GPIO43=TX / GPIO44=RX），这个模块就是"搬运工"——把飞控发来的字节搬进队列、把队列里的字节发给飞控。
+
+### 用的串口
+- `Serial0`（UART0），飞控数据专用
+- `Serial` 是 USB 日志口，`Serial1` 是 CLI 口，都**不碰**飞控这条线，互不干扰
+
+### 数据流（uart_task，核1 优先级10，1ms 轮询）
+```
+飞控 TX ──> Serial0.available()/read ──> q_uart_rx ──> mav_router（解析）
+飞控 RX <── Serial0.write <── q_uart_tx <── mav_router（下发）
+```
+
+### 实现取舍
+- 当前用 Arduino `HardwareSerial` 的轮询搬运（1ms 一次），简单够用
+- 架构 §3.1 说的"DMA 环形缓冲"（`uart_driver_install` + 事件回调）是升级项，P0 验证通过后、若发现高波特率丢字节再换

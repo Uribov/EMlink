@@ -35,3 +35,28 @@ C 口 VBUS ────────────────→ 5V 引脚（S3 �
 ## 验收（P4）
 - 飞行中插 USB → 数据通路不变，仅弹 CLI
 - 掐断上行 3s 内飞控进返航；恢复后自动重连
+
+## 当前实现架构（供人和子 agent 阅读）
+
+### 一句话
+安全核心：电源/接口状态机（防双供电）+ 链路看门狗。**固件绝不越权替飞控做决定。**
+
+### 电源/接口状态机（三态，判据 = 角色 + USB 是否枚举）
+| 态 | 条件 | 数据通路 |
+|---|---|---|
+| PWR_CFG_ONLY | role 未设 | 仅 USB=CLI，射频停 |
+| PWR_AIR_UART | role=AIR | UART ↔ LoRa |
+| PWR_GCS_USB | role=GCS | USB=MAVLink |
+
+- `failsafe_enter()`：上电读 role 进对应态
+- **飞行中（AIR 态）插 USB → 只弹 CLI，不切数据通路**（防数据流被 USB 抢走）
+
+### 链路看门狗
+- `failsafe_on_event(ev)`：收到 EV_LINK_LOST 置 `g_link_lost=true`，EV_LINK_RESTORED 置 false
+- 返航判定是**飞控自己**数心跳超时，固件只保证 GCS HEARTBEAT 不误时（见 mav_router）
+
+### 事件从哪来
+- stats_task 每 1s：失联判定（EV_LINK_LOST/RESTORED）+ 读事件位调 `failsafe_on_event()`（failsafe 无独立任务）
+
+### 状态查询
+`failsafe_power_state()` / `failsafe_link_lost()`，供 stats LED 显示
