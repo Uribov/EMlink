@@ -41,7 +41,7 @@ service: mav_router ─┬─ frag, addr_map, mesh, crypto
          nvs_cfg (Preferences)
          watchdog ─┬─ radio
          crypto ─┬─ frame_codec, nvs_cfg
-         ota ─┬─ nvs_cfg, crypto, radio
+         ota ─┬─ nvs_cfg, crypto, radio, webui(页面资源)
 net:     mesh ─┬─ frame_codec, route, adr, crypto, frag
          route (无)
 link:    mac ─┬─ radio, frame_codec, duty, adr

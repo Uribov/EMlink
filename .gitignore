@@ -8,3 +8,8 @@ build/
 # 编辑器/系统
 .vscode/
 *.swp
+
+# design/ 下由脚本生成的产物（随时可重新生成，见 design/verify_webui.py）
+design/*-render.html
+design/webui-shot.png
+design/logo-*.png

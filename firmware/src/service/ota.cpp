@@ -1,9 +1,12 @@
 // ============================================================
 // ota.cpp —— OTA 固件升级 / WiFi Web 管理
-// WiFi AP + WebServer + 内嵌 HTML；改参数 / 设密钥 / 刷固件(Update.h)。
-// 进入维护模式 radio_suspend()（WiFi 与 LoRa 二选一），退出恢复。
+// WiFi AP + WebServer + 内嵌 HTML（页面资源见 webui.h，学 ELRS 视觉）。
+// 改参数 / 设密钥 / 刷固件(Update.h)；进维护模式 radio_suspend()，退出恢复。
+// 页面用 String 拼装后一次 send()：Content-Length 由框架填、连接头由框架清，
+// 避免旧实现「手动写状态行 + sendHeader」导致 _responseHeaders 只增不清的泄漏。
 // ============================================================
 #include "ota.h"
+#include "webui.h"
 #include "../rtos.h"
 #include "nvs_cfg.h"
 #include "crypto.h"
@@ -12,13 +15,18 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Update.h>
-#include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static WebServer*   g_server = nullptr;
 static TaskHandle_t g_ota_task = nullptr;
 static volatile bool g_active = false;
 static uint8_t      g_node_id = 1;
+static bool         g_upd_ok  = false;   // 本次刷写是否成功（供完成回调判断）
+
+// 整页 String 预留容量（还原实测主页 9276 字节，留 ~1KB 余量；
+// 一次分配，避免反复 realloc 造成堆碎片）
+#define WUI_RESERVE 10240
 
 // 角色号 → 字符串（网页显示用；与 nvs_cfg 内部约定一致）
 static const char* role_name(uint8_t r) {
@@ -30,166 +38,198 @@ static const char* role_name(uint8_t r) {
     }
 }
 
-// ---- 内嵌 HTML（单页，含改参数/设密钥/刷固件三块）----
-static const char PAGE_HEAD[] PROGMEM =
-"<!DOCTYPE html><html><head><meta charset='utf-8'>"
-"<meta name='viewport' content='width=device-width,initial-scale=1'>"
-"<title>EMlink 配置</title><style>"
-"body{font-family:sans-serif;max-width:480px;margin:0 auto;padding:16px;background:#111;color:#eee}"
-"h1{font-size:20px}h2{font-size:16px;margin-top:24px;border-bottom:1px solid #333;padding-bottom:4px}"
-"label{display:block;margin:8px 0 2px;font-size:13px;color:#aaa}"
-"input,select{width:100%;box-sizing:border-box;padding:8px;background:#222;color:#eee;border:1px solid #444;border-radius:4px;font-size:14px}"
-"button{display:block;width:100%;margin:12px 0;padding:10px;background:#2a7;color:#fff;border:0;border-radius:4px;font-size:15px}"
-"button.off{background:#a33}button.ota{background:#37c}"
-".hint{font-size:12px;color:#888;margin-top:-6px}"
-"</style></head><body>";
-
-static const char PAGE_TAIL[] PROGMEM =
-"</body></html>";
-
-static const char* page_head() { return PAGE_HEAD; }
-static const char* page_tail() { return PAGE_TAIL; }
-
-// 打印一段字符串（PROGMEM）
-static void ws_send_p(WebServer& s, const char* p) {
-    while (pgm_read_byte(p)) s.client().write((char)pgm_read_byte(p++));
+// ---- 状态行：节点 / 角色 / 加密 ----
+static void add_status(String& p, const cfg_t& c) {
+    char b[192];
+    bool enc = crypto_enabled();
+    snprintf(b, sizeof(b),
+             "<span>节点 <b>%02u</b></span><span>角色 <b>%s</b></span>"
+             "<span class=\"st%s\"><i></i>%s</span>",
+             (unsigned)(c.node_id ? c.node_id : g_node_id),
+             role_name(c.role),
+             enc ? "" : " off",
+             enc ? "加密已启用" : "加密未启用");
+    p += b;
 }
 
-static void ws_send_c(WebServer& s, const char* c) {
-    s.client().write(c, strlen(c));
+// ---- <option> 列表（cur 命中则加 selected）----
+static void add_opts(String& p, const int* v, int n, int cur) {
+    char b[32];
+    for (int i = 0; i < n; i++) {
+        snprintf(b, sizeof(b), "<option%s>%d</option>",
+                 (v[i] == cur) ? " selected" : "", v[i]);
+        p += b;
+    }
+}
+
+// ---- 射频参数字段：值取自 NVS 当前配置（不再是写死的占位值）----
+static void add_radio_fields(String& p, const cfg_t& c) {
+    static const int SFV[] = {7, 8, 9, 10, 11};
+    static const int BWV[] = {125, 250, 500};
+    static const int CRV[] = {5, 6, 7, 8};
+    char b[288];
+
+    snprintf(b, sizeof(b),
+             "<div><label for=\"f\">频率 MHz</label>"
+             "<input id=\"f\" name=\"freq\" type=\"text\" value=\"%.1f\"></div>"
+             "<div><label for=\"sf\">扩频因子</label><select id=\"sf\" name=\"sf\">",
+             (double)c.freq);
+    p += b;
+    add_opts(p, SFV, 5, c.sf);
+
+    p += "</select></div><div><label for=\"bw\">带宽 kHz</label><select id=\"bw\" name=\"bw\">";
+    add_opts(p, BWV, 3, c.bw);
+
+    p += "</select></div><div><label for=\"cr\">编码率</label><select id=\"cr\" name=\"cr\">";
+    add_opts(p, CRV, 4, c.cr);
+
+    snprintf(b, sizeof(b),
+             "</select></div><div class=\"wide\"><label for=\"pw\">发射功率 dBm</label>"
+             "<input id=\"pw\" name=\"power\" type=\"text\" value=\"%d\"></div>",
+             (int)c.power);
+    p += b;
+}
+
+// ---- 发送整页：Content-Length / Connection 均由 WebServer 负责 ----
+static void send_page(WebServer& s, const String& page) {
+    s.send(200, "text/html; charset=utf-8", page);
+}
+
+// ---- 回执页（复用主页页头 + 状态行，只有中间一句提示不同；省一套 CSS 的 Flash）----
+static void send_done(WebServer& s, bool bad, const char* text) {
+    cfg_t c;
+    nvs_cfg_load(&c);
+
+    String p;
+    p.reserve(WUI_RESERVE);
+    p += WUI_HEAD;
+    p += WUI_SUB_OPEN;
+    add_status(p, c);
+    p += WUI_SUB_END;
+    p += WUI_DONE_A;
+    p += bad ? "<div class=\"msg bad\">" : "<div class=\"msg\">";
+    p += text;
+    p += "</div>";
+    p += WUI_DONE_B;
+    send_page(s, p);
 }
 
 // ---- 主页 ----
 static void handle_root() {
     WebServer& s = *g_server;
-    s.sendHeader("Content-Type", "text/html; charset=utf-8");
-    s.client().print("HTTP/1.1 200 OK\r\n");
-
-    ws_send_p(s, page_head());
-
-    char buf[160];
     cfg_t c;
     nvs_cfg_load(&c);
-    snprintf(buf, sizeof(buf),
-        "<h1>EMlink 数传配置</h1>"
-        "<div class='hint'>节点 id=%u | 角色=%s | 加密=%s</div>",
-        c.node_id ? c.node_id : (unsigned)g_node_id,
-        role_name(c.role),
-        crypto_enabled() ? "开" : "关");
-    ws_send_c(s, buf);
 
-    // ---- 改参数表单 ----
-    ws_send_p(s, PSTR("<h2>射频参数</h2>"
-        "<form action='/set' method='get'>"
-        "<label>频率 freq (MHz)</label><input name='freq' value='915.0'>"
-        "<label>扩频 sf (7~11)</label><input name='sf' value='7'>"
-        "<label>带宽 bw (kHz)</label><input name='bw' value='125'>"
-        "<label>编码率 cr (5~8)</label><input name='cr' value='5'>"
-        "<label>功率 power (dBm)</label><input name='power' value='20'>"
-        "<button type='submit'>保存参数（重启生效）</button></form>"));
-
-    // ---- 设密钥表单 ----
-    ws_send_p(s, PSTR("<h2>加密密钥</h2>"
-        "<form action='/crypto' method='get'>"
-        "<label>密钥（32 个 hex 字符）</label><input name='key' maxlength='32' placeholder='0123456789abcdef0123456789abcdef'>"
-        "<button type='submit'>设置密钥并启用</button></form>"
-        "<form action='/crypto' method='get'>"
-        "<button class='off' name='off' value='1' type='submit'>关闭加密</button></form>"));
-
-    // ---- 刷固件表单 ----
-    ws_send_p(s, PSTR("<h2>刷固件</h2>"
-        "<form action='/update' method='post' enctype='multipart/form-data'>"
-        "<label>选择 .bin 固件</label><input type='file' name='firmware'>"
-        "<button class='ota' type='submit'>上传刷写</button></form>"
-        "<div class='hint'>刷写成功自动重启切到新分区</div>"));
-
-    // ---- 退出维护模式 ----
-    ws_send_p(s, PSTR("<h2>系统</h2>"
-        "<form action='/exit' method='get'>"
-        "<button class='off' type='submit'>退出维护模式（恢复数传）</button></form>"));
-
-    ws_send_p(s, page_tail());
-    s.client().stop();
+    String p;
+    p.reserve(WUI_RESERVE);
+    p += WUI_HEAD;
+    p += WUI_SUB_OPEN;
+    add_status(p, c);
+    p += WUI_SUB_END;
+    p += WUI_RADIO_A;
+    add_radio_fields(p, c);
+    p += WUI_RADIO_B;
+    p += WUI_CRYPTO;
+    p += WUI_OTA;
+    p += WUI_TAIL;
+    send_page(s, p);
 }
 
-// ---- 改参数 /set?freq=915&sf=7... ----
+// ---- 改参数 /set?freq=915.0&sf=7&bw=125&cr=5&power=20 ----
 static void handle_set() {
     WebServer& s = *g_server;
     cfg_t c;
     nvs_cfg_load(&c);
 
-    if (s.hasArg("freq"))  c.freq  = atof(s.arg("freq").c_str());
-    if (s.hasArg("sf"))    c.sf    = (uint8_t)atoi(s.arg("sf").c_str());
-    if (s.hasArg("bw"))    c.bw    = (uint8_t)atoi(s.arg("bw").c_str());
-    if (s.hasArg("cr"))    c.cr    = (uint8_t)atoi(s.arg("cr").c_str());
-    if (s.hasArg("power")) c.power = (int8_t)atoi(s.arg("power").c_str());
-    nvs_cfg_save(&c);
+    // 只接受页面上能选到的合法值：有一个非法就整表拒绝，
+    // 不留半套参数被写进 NVS（比如 freq=0 会让射频彻底收不到）
+    bool bad = false;
+    if (s.hasArg("freq")) {
+        double f = atof(s.arg("freq").c_str());
+        if (f >= 400.0 && f <= 1000.0) c.freq = (float)f; else bad = true;
+    }
+    if (s.hasArg("sf")) {
+        int v = atoi(s.arg("sf").c_str());
+        if (v >= 7 && v <= 11) c.sf = (uint8_t)v; else bad = true;
+    }
+    if (s.hasArg("bw")) {
+        int v = atoi(s.arg("bw").c_str());
+        if (v == 125 || v == 250 || v == 500) c.bw = (uint8_t)v; else bad = true;
+    }
+    if (s.hasArg("cr")) {
+        int v = atoi(s.arg("cr").c_str());
+        if (v >= 5 && v <= 8) c.cr = (uint8_t)v; else bad = true;
+    }
+    if (s.hasArg("power")) {
+        int v = atoi(s.arg("power").c_str());
+        if (v >= -9 && v <= 30) c.power = (int8_t)v; else bad = true;
+    }
 
-    s.sendHeader("Content-Type", "text/html; charset=utf-8");
-    s.client().print("HTTP/1.1 200 OK\r\n");
-    ws_send_p(s, page_head());
-    ws_send_p(s, PSTR("<h1>已保存</h1><div class='hint'>参数已写入，重启后生效。</div>"
-        "<form action='/' method='get'><button type='submit'>返回</button></form>"));
-    ws_send_p(s, page_tail());
-    s.client().stop();
+    if (bad) { send_done(s, true, "请输入正确的格式"); return; }
+    if (!nvs_cfg_save(&c)) { send_done(s, true, "写入失败：NVS 保存出错。"); return; }
+    send_done(s, false, "参数已保存，重启后生效。");
 }
 
 // ---- 设密钥 /crypto?key=<32hex> 或 /crypto?off=1 ----
 static void handle_crypto() {
     WebServer& s = *g_server;
-    bool ok = false;
+
     if (s.hasArg("off")) {
         crypto_disable();
-        ok = true;
-    } else if (s.hasArg("key")) {
-        ok = crypto_set_key_hex(s.arg("key").c_str());
+        send_done(s, false, "加密已关闭，密钥已清除。");
+        return;
     }
 
-    s.sendHeader("Content-Type", "text/html; charset=utf-8");
-    s.client().print("HTTP/1.1 200 OK\r\n");
-    ws_send_p(s, page_head());
-    if (ok) ws_send_p(s, PSTR("<h1>密钥已更新</h1><div class='hint'>立即生效。</div>"));
-    else    ws_send_p(s, PSTR("<h1>失败</h1><div class='hint'>密钥必须是 32 个 hex 字符。</div>"));
-    ws_send_p(s, PSTR("<form action='/' method='get'><button type='submit'>返回</button></form>"));
-    ws_send_p(s, page_tail());
-    s.client().stop();
+    if (!s.hasArg("key")) { send_done(s, true, "请输入正确的格式"); return; }
+
+    // 先去掉空白再交给 crypto；判定标准与 crypto_set_key_hex 完全一致（恰好 32 个 hex）
+    char k[40];
+    size_t n = 0;
+    for (const char* src = s.arg("key").c_str(); *src && n < sizeof(k) - 1; src++) {
+        char ch = *src;
+        if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') continue;
+        k[n++] = ch;
+    }
+    k[n] = 0;
+
+    if (!crypto_set_key_hex(k)) { send_done(s, true, "请输入正确的格式"); return; }
+    send_done(s, false, "密钥已更新，立即生效。");
 }
 
-// ---- 刷固件 /update（multipart 上传，Update.h 写 ota_1 后重启）----
-static void handle_update() {
+// ---- 刷固件：上传回调（分片写入 OTA 空闲分区）----
+static void handle_upload() {
     WebServer& s = *g_server;
-    HTTPUpload& upload = s.upload();
+    HTTPUpload& up = s.upload();
 
-    if (upload.status == UPLOAD_FILE_START) {
-        if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
-            Update.printError(Serial);
-        }
-    } else if (upload.status == UPLOAD_FILE_WRITE) {
-        if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
-            Update.printError(Serial);
-        }
-    } else if (upload.status == UPLOAD_FILE_END) {
+    if (up.status == UPLOAD_FILE_START) {
+        g_upd_ok = false;
+        if (!Update.begin(UPDATE_SIZE_UNKNOWN)) Update.printError(Serial);
+    } else if (up.status == UPLOAD_FILE_WRITE) {
+        if (Update.write(up.buf, up.currentSize) != up.currentSize) Update.printError(Serial);
+    } else if (up.status == UPLOAD_FILE_END) {
         if (Update.end(true)) {
-            // 成功：回一句，稍后重启切分区
-            s.sendHeader("Content-Type", "text/html; charset=utf-8");
-            s.client().print("HTTP/1.1 200 OK\r\n");
-            ws_send_p(s, PSTR("<h1>刷写成功</h1><div class='hint'>正在重启…</div>"));
+            g_upd_ok = true;
+            send_done(s, false, "刷写成功，正在重启…");
             s.client().stop();
             delay(300);
             ESP.restart();
-            return;
         } else {
             Update.printError(Serial);
         }
     }
 }
 
+// ---- 刷固件：完成回调。成功路径已在上面的 END 分支回过话并重启，
+//      这里兜底「失败」和「压根没选文件」两种情况（否则浏览器一直转圈等不到回应）
+static void handle_update_done() {
+    if (g_upd_ok) return;
+    send_done(*g_server, true, "刷写失败：请确认选择了完整的 .bin 固件。");
+}
+
 // ---- 退出维护模式 /exit ----
 static void handle_exit() {
     WebServer& s = *g_server;
-    s.sendHeader("Content-Type", "text/html; charset=utf-8");
-    s.client().print("HTTP/1.1 200 OK\r\n");
-    ws_send_p(s, PSTR("<h1>已退出</h1><div class='hint'>LoRa 已恢复，WiFi 已关闭。</div>"));
+    send_done(s, false, "已退出维护模式，LoRa 数传恢复，WiFi 已关闭。");
     s.client().stop();
     delay(100);
     ota_stop();
@@ -240,7 +280,7 @@ void ota_start() {
     g_server->on("/",        handle_root);
     g_server->on("/set",     handle_set);
     g_server->on("/crypto",  handle_crypto);
-    g_server->on("/update",  HTTP_POST, [](){}, handle_update);
+    g_server->on("/update",  HTTP_POST, handle_update_done, handle_upload);
     g_server->on("/exit",    handle_exit);
     g_server->begin();
 

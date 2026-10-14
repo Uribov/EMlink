@@ -2,9 +2,9 @@
 // ============================================================
 // ota —— OTA 固件升级 / WiFi Web 管理（学 ELRS）
 // 方案：WiFi AP 模式（SSID EMlink-<node_id>，IP 192.168.4.1）
-//       Arduino WebServer + 内嵌 HTML：改参数 / 设密钥 / 刷固件(Update.h)
+//       Arduino WebServer + 内嵌 HTML（页面资源在 webui.h）：改参数 / 设密钥 / 刷固件(Update.h)
 //       CLI `wifi` 命令触发；进入维护模式时 LoRa 暂停（二选一）
-// 依赖：WiFi/WebServer/Update（ESP32 Arduino 内置）、nvs_cfg、crypto、radio
+// 依赖：WiFi/WebServer/Update（ESP32 Arduino 内置）、nvs_cfg、crypto、radio、webui
 // 规格：ota.md
 // ============================================================
 #include <Arduino.h>
