@@ -55,7 +55,10 @@ void setup() {
     rtos_comms_init();
 
     // 3. 射频 + 链路 + 网络（core0，下游先就位）
-    radio_init(g_cfg.freq, g_cfg.bw, g_cfg.sf, g_cfg.cr, g_cfg.syncword, g_cfg.power);
+    if (!radio_init(g_cfg.freq, g_cfg.bw, g_cfg.sf, g_cfg.cr, g_cfg.syncword, g_cfg.power)) {
+        delay(50);
+        radio_init(g_cfg.freq, g_cfg.bw, g_cfg.sf, g_cfg.cr, g_cfg.syncword, g_cfg.power);
+    }
     radio_start();
     mac_set_params(g_cfg.ack_timeout_ms, g_cfg.retries);
     mac_start();

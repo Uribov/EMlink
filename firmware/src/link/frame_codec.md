@@ -43,3 +43,30 @@
 - 编解码往返：任意 payload 长度 0~180 无损还原
 - CRC 篡改 1 字节 → `frame_decode` 返回 false
 - `seq=0x0102` 编出字节 `02 01`；`proto`/`net_id` 正确读写
+
+## 当前实现架构（已实现，供子 agent 分析）
+
+### 线上布局（MTU 200，含 relay_id 扩展）
+| 偏移 | 字段 |
+|---|---|
+| 0 | ver:type（ver=1 高4b，type 低4b） |
+| 1 | flags（qos[7:6] ack_req[5] frag[4] proto[3:2]） |
+| 2 | src_id |
+| 3 | dst_id（0=广播） |
+| 4-5 | seq（小端） |
+| 6 | ttl |
+| 7 | relay_id（广播=上一跳转发者；单播=下一跳；源发=0） |
+| 8 | orig_sysid |
+| 9 | net_id |
+| 10-13 | frag_hdr[4] |
+| 14.. | payload（≤179） |
+| 末2字节 | crc16 |
+
+### 常量
+`FRAME_HDR_LEN=14`、`FRAME_MAX_PAYLOAD=179`、`FRAME_MTU=200`、`FRAME_CRC_LEN=2`、`FRAME_DEF_TTL=5`
+
+### 接口与关键点
+- `frame_encode(frame_t*→buf)` / `frame_decode(buf→frame_t*)` / `frame_crc16()`
+- `frame_t.payload` 是 `const uint8_t*`，decode 时指向 buf 内部，不能脱离 buf 单独存活
+- CRC16-CCITT（poly 0x1021，init 0xFFFF），覆盖 header(14)+payload，不含 CRC 本身
+- `frame_decode` 校验版本位、长度、CRC 三项，任一失败返回 false（上层计 drop_crc）

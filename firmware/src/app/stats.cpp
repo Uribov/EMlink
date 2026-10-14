@@ -6,6 +6,8 @@
 #include "../rtos.h"
 #include "../pinmap.h"
 #include "../net/mesh.h"
+#include "../link/mac.h"
+#include "../service/nvs_cfg.h"
 #include "../service/frag.h"
 #include "../service/watchdog.h"
 #include "../drivers/radio.h"
@@ -17,12 +19,16 @@
 static Adafruit_NeoPixel* g_led = nullptr;
 static TaskHandle_t g_stats_task = nullptr;
 
+static uint16_t g_failsafe_s = 3;
+
 void stats_init() {
 #if PIN_LED >= 0
     g_led = new Adafruit_NeoPixel(1, PIN_LED, NEO_GRB + NEO_KHZ800);
     g_led->begin();
     g_led->setBrightness(20);
 #endif
+    cfg_t c;
+    if (nvs_cfg_load(&c) && c.failsafe_s != 0) g_failsafe_s = c.failsafe_s;
 }
 
 void stats_collect(stats_t* out) {
@@ -30,16 +36,18 @@ void stats_collect(stats_t* out) {
     out->fwd          = mesh_fwd_count();
     out->dropped_ttl  = mesh_drop_ttl_count();
     out->dropped_dup  = mesh_drop_dup_count();
+    out->dropped_crc  = mesh_drop_crc_count();
     out->reasm_timeout = frag_timeout_count();
+    out->tx_frames    = mac_tx_count();
+    out->rx_frames    = mesh_rx_count();
+    out->ack_ok       = mac_ack_ok();
+    out->ack_miss     = mac_ack_miss();
+    out->retries      = mac_retries();
     out->rssi         = (int16_t)radio_lastRssi();
     out->snr          = (int16_t)radio_lastSnr();
     out->heap_free    = ESP.getFreeHeap();
     out->wdt_resets   = watchdog_wdt_resets();
     out->rf_reinit    = watchdog_rf_reinits();
-    // tx/rx/ack 统计由 mac/mesh 计数（接口待补，先占位 0）
-    out->tx_frames = out->rx_frames = 0;
-    out->ack_ok = out->ack_miss = out->retries = 0;
-    out->dropped_crc = 0;
     out->link_quality_pct = 0;
 }
 
@@ -72,11 +80,40 @@ void stats_update_led(led_role_t role, led_health_t health) {
     g_led->show();
 }
 
+static uint32_t g_last_beacon_ms = 0;
+static bool g_link_was_lost = false;
+
 static void stats_task_func(void* arg) {
     (void)arg;
     for (;;) {
         watchdog_feed();
         power_usb_present();   // 内部做 USB 插拔事件检测
+
+        // GCS 每 1s 广播 BEACON（邻居据此评估链路质量，架构 §5）
+        if (role_current() == ROLE_GCS) {
+            if (millis() - g_last_beacon_ms >= 1000) {
+                g_last_beacon_ms = millis();
+                mesh_send_beacon();
+            }
+        }
+
+        // 失联判定（架构 §8.2：failsafe_s 秒无上行 → EV_LINK_LOST）
+        bool link_lost = (millis() - mesh_last_rx_ms()) > g_failsafe_s * 1000;
+        if (link_lost && !g_link_was_lost) {
+            xEventGroupSetBits(evg, EV_LINK_LOST);
+            g_link_was_lost = true;
+        } else if (!link_lost && g_link_was_lost) {
+            xEventGroupSetBits(evg, EV_LINK_RESTORED);
+            g_link_was_lost = false;
+        }
+
+        // 事件处理：交给 failsafe_policy（电源/链路状态机）
+        EventBits_t ev = xEventGroupGetBits(evg) &
+                         (EV_USB_PLUG | EV_USB_UNPLUG | EV_LINK_LOST | EV_LINK_RESTORED);
+        if (ev) {
+            failsafe_on_event(ev);
+            xEventGroupClearBits(evg, ev);
+        }
 
         // LED：角色 + 健康
         uint8_t role = role_current();

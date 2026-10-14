@@ -25,10 +25,16 @@ void mesh_set_rx_cb(mesh_rx_cb_t cb);
 bool mesh_send(uint8_t dst_id, uint8_t qos, bool ack_req,
                const uint8_t* payload, size_t len, uint8_t orig_sysid);
 
+// GCS 广播 BEACON（邻居据此评估链路质量，架构 §5）
+bool mesh_send_beacon();
+
 // 统计
 uint32_t mesh_fwd_count();
 uint32_t mesh_drop_ttl_count();
 uint32_t mesh_drop_dup_count();
+uint32_t mesh_drop_crc_count();
+uint32_t mesh_rx_count();
+uint32_t mesh_last_rx_ms();   // 最后收帧时间 ms（失联判定用）
 
 // 启动 mesh 任务（内部 xTaskCreate mesh_task_func，任务函数为模块内 static）
 void mesh_start(void);

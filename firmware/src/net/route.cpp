@@ -55,3 +55,12 @@ uint8_t route_neighbors(neighbor_t* out, uint8_t max) {
     }
     return n;
 }
+
+void route_update_rssi(uint8_t src_id, int16_t rssi) {
+    for (int i = 0; i < g_n; i++) {
+        if (g_paths[i].src_id == src_id) {
+            g_paths[i].rssi = rssi;
+            return;
+        }
+    }
+}

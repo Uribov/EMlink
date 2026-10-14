@@ -25,3 +25,6 @@ uint8_t route_next_hop(uint8_t src_id);
 
 // 导出邻居表（给 stats/CLI）；返回条目数
 uint8_t route_neighbors(neighbor_t* out, uint8_t max);
+
+// 更新某邻居的 RSSI（收到 BEACON 时调用）
+void route_update_rssi(uint8_t src_id, int16_t rssi);

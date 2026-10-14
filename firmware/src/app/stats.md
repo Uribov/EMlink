@@ -29,3 +29,23 @@
 
 ## 验收（P0）
 - `stats` 命令每 1s 刷新，计数单调增长；LED 按状态正确闪
+
+## 当前实现架构（已实现，供子 agent 分析）
+
+### static 变量
+- `g_led`：`Adafruit_NeoPixel`（WS2818 @ GPIO48）
+- `g_failsafe_s`：失联阈值（NVS `failsafe_s`，默认 3）
+- `g_last_beacon_ms`：BEACON 发送节流
+- `g_link_was_lost`：失联边沿检测
+
+### stats_task 每 1s 按序做的事
+1. `watchdog_feed()`
+2. `power_usb_present()`（内部做 USB 插拔检测并发 EV_USB_PLUG/UNPLUG）
+3. GCS 角色：节流 1s 发 `mesh_send_beacon()`
+4. 失联判定：`millis() - mesh_last_rx_ms() > failsafe_s*1000` → 置 EV_LINK_LOST；恢复 → EV_LINK_RESTORED（边沿触发）
+5. 事件分发：读事件位 `(USB_PLUG|USB_UNPLUG|LINK_LOST|LINK_RESTORED)` → `failsafe_on_event()` → 清位
+6. LED：颜色=角色，节奏=`failsafe_link_lost()?LOST:OK`
+
+### 关键点
+- 事件消费统一收敛在 stats_task（1s 轮询），failsafe_policy 无独立任务，靠这里喂事件
+- `stats_collect()` 从 mac/mesh/frag/watchdog/radio 的 getter 聚合计数（tx/rx/ack/fwd/drop/rssi/heap...）

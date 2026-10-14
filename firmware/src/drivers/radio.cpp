@@ -5,6 +5,7 @@
 // ============================================================
 #include "radio.h"
 #include "../rtos.h"
+#include "../service/watchdog.h"
 
 #if defined(RADIO_SX126X)
 static SX1268* g_radio = nullptr;
@@ -39,6 +40,8 @@ bool radio_init(float freq, float bw, uint8_t sf, uint8_t cr,
     // 晶振版无 TCXO：tcxoVoltage=0
     int16_t st = g_radio->begin(freq, bw, sf, cr, sync, pwr, 8, 0.0f);
     if (st != RADIOLIB_ERR_NONE) {
+        // 初始化失败：触发射频自救（软复位，累计 3 次整机重启）
+        watchdog_rf_fault();
         return false;
     }
 
@@ -49,12 +52,23 @@ bool radio_init(float freq, float bw, uint8_t sf, uint8_t cr,
 #endif
 }
 
+static uint8_t g_tx_fail = 0;
+
 int16_t radio_transmit(const uint8_t* data, size_t len, uint32_t timeout_ms) {
     (void)timeout_ms;
 #if defined(RADIO_SX126X)
     if (!g_radio) return -1;
     int16_t st = g_radio->transmit(const_cast<uint8_t*>(data), len);
-    return (st == RADIOLIB_ERR_NONE) ? 0 : st;
+    if (st == RADIOLIB_ERR_NONE) {
+        g_tx_fail = 0;
+        return 0;
+    }
+    // 连续 3 次发送失败 -> 触发射频自救（软复位，累计 3 次则整机重启，架构 §8.2）
+    if (++g_tx_fail >= 3) {
+        g_tx_fail = 0;
+        watchdog_rf_fault();
+    }
+    return st;
 #else
     return -1;
 #endif

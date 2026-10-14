@@ -27,7 +27,8 @@ static TaskHandle_t g_mesh_task = nullptr;
 static mesh_rx_cb_t g_rx_cb = nullptr;
 
 // 统计
-static uint32_t g_fwd = 0, g_drop_ttl = 0, g_drop_dup = 0, g_drop_crc = 0;
+static uint32_t g_fwd = 0, g_drop_ttl = 0, g_drop_dup = 0, g_drop_crc = 0, g_rx = 0;
+static uint32_t g_last_rx_ms = 0;
 
 // ---- 位图工具 ----
 static bool bm_get(const uint32_t* bm, int bit) { return (bm[bit >> 5] >> (bit & 31)) & 1; }
@@ -152,9 +153,40 @@ bool mesh_send(uint8_t dst_id, uint8_t qos, bool ack_req,
     return rtos_tx_enqueue(&item);
 }
 
+bool mesh_send_beacon() {
+    frame_t f = {};
+    f.type       = FRAME_BEACON;
+    f.qos        = QOS0;
+    f.ack_req    = false;
+    f.frag       = false;
+    f.proto      = PROTO_CUSTOM;   // BEACON 无 MAVLink 载荷
+    f.src_id     = g_my_node_id;
+    f.dst_id     = 0;              // 广播
+    f.relay_id   = 0;
+    f.seq        = g_seq++;
+    f.ttl        = 1;              // 只一跳，不转发
+    f.orig_sysid = 0;
+    f.payload    = nullptr;
+    f.payload_len = 0;
+
+    uint8_t buf[FRAME_MTU];
+    size_t n = frame_encode(&f, buf, sizeof(buf));
+    if (n == 0) return false;
+
+    queue_item_t item = {};
+    memcpy(item.data, buf, n);
+    item.len = (uint16_t)n;
+    item.qos = QOS0;
+    item.ack_req = 0;
+    return rtos_tx_enqueue(&item);
+}
+
 uint32_t mesh_fwd_count()      { return g_fwd; }
 uint32_t mesh_drop_ttl_count() { return g_drop_ttl; }
 uint32_t mesh_drop_dup_count() { return g_drop_dup; }
+uint32_t mesh_drop_crc_count() { return g_drop_crc; }
+uint32_t mesh_rx_count()       { return g_rx; }
+uint32_t mesh_last_rx_ms()     { return g_last_rx_ms; }
 
 // ---- mesh_task：收帧 -> 解码 -> ACK/去重/TTL -> 投递/转发 ----
 static void mesh_task_func(void* arg) {
@@ -168,6 +200,8 @@ static void mesh_task_func(void* arg) {
             g_drop_crc++;
             continue;
         }
+        g_rx++;
+        g_last_rx_ms = millis();
 
         // ACK 帧：通知 mac
         if (f.type == FRAME_ACK) {
@@ -177,6 +211,13 @@ static void mesh_task_func(void* arg) {
 
         // 去重（重复帧不处理不转发）
         if (!mesh_ingress(&f)) continue;
+
+        // BEACON：记录邻居链路质量，不投递不转发
+        if (f.type == FRAME_BEACON) {
+            route_learn(f.src_id, 0);
+            route_update_rssi(f.src_id, item.rssi);
+            continue;
+        }
 
         // 数据帧且要 ACK：回 ACK
         if (f.type == FRAME_DATA && f.ack_req) {

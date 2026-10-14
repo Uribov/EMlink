@@ -119,6 +119,11 @@ void mac_send_ack(uint8_t src_id, uint16_t seq) {
     if (n > 0) radio_transmit(buf, n, 500);
 }
 
+uint32_t mac_tx_count()   { return g_tx; }
+uint32_t mac_ack_ok()     { return g_ack_ok; }
+uint32_t mac_ack_miss()   { return g_ack_miss; }
+uint32_t mac_retries()    { return g_retry; }
+
 // ---- mac_task：从 q_mac_tx 读待发帧，mac_send 发送 ----
 static void mac_task_func(void* arg) {
     (void)arg;

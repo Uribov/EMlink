@@ -34,5 +34,11 @@ void mac_set_params(uint32_t ack_timeout_ms, uint8_t retries);
 // ACK 帧到达通知（mesh_task 收到 FRAME_ACK 时调用）：匹配正在等的 seq 则标记
 void mac_on_ack_rx(uint8_t ack_src, uint16_t ack_seq);
 
+// 统计
+uint32_t mac_tx_count();
+uint32_t mac_ack_ok();
+uint32_t mac_ack_miss();
+uint32_t mac_retries();
+
 // 启动 MAC 任务（内部 xTaskCreate mac_task_func，任务函数为模块内 static）
 void mac_start(void);

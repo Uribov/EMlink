@@ -23,3 +23,21 @@
 
 ## 验收（P2）
 - 单向链 A→B→C 传完后，C 回 A 的包能沿原路 B 单播回 A（不泛洪）
+
+## 当前实现架构（已实现，供子 agent 分析）
+
+### 数据结构
+- `path_t`：{src_id, via（下一跳）, rssi, seen_ms}，固定 16 槽（ROUTE_MAX_NEIGHBORS）
+
+### 接口语义
+- `route_learn(src_id, via_neighbor)`：via=0 表示 src 直连（内部存 next=src 自己）；via≠0 存 next=via
+- `route_next_hop(src_id)`：返回回 src 的下一跳；无记录返回 0
+- `route_update_rssi(src_id, rssi)`：更新邻居信号（BEACON 用）
+- `route_neighbors(out, max)`：导出邻居表（stats 显示）
+
+### 反向路径用法（配合 mesh 的 relay_id）
+- mesh_task 收广播帧 → `route_learn(f.src_id, f.relay_id)`（relay_id=0 即直连）
+- mesh_send 单播 → `route_next_hop(dst)` 定 relay_id（下一跳）；返回 0 则回退广播
+
+### 预留
+- 帧类型 FRAME_ROUTE 已留位（架构 §4.5），节点 >8 再上主动路由；当前只用反向路径 + 泛洪兜底

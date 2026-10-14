@@ -28,3 +28,27 @@
 ## 验收（P0）
 - 两块板 `radio_init` 返回 true、无异常码
 - 10m 内互发互收，`rssi`/`snr` 读出有效值并打日志
+
+## 当前实现架构（已实现，供子 agent 分析）
+
+### static 变量
+- `g_radio` / `g_mod`：RadioLib `SX1268`/`Module` 实例（堆上 new）
+- `g_rf_task`：rf_task 句柄
+- `g_last_rssi` / `g_last_snr`：最近收包信号
+- `g_tx_fail`：连续发送失败计数（自救触发用）
+
+### 数据流
+DIO1 上升沿中断 `radio_isr` → `vTaskNotifyGiveFromISR(g_rf_task)` → rf_task 被唤醒
+→ `radio_readPacket()` 读包 → 装 `queue_item_t` → 投 `q_rf_rx`（消费方 mesh_task）
+
+### 关键实现细节
+1. SPI 重映射：`SPI.begin(SCK=9, MISO=11, MOSI=10, SS=8)`（GP13=BUSY 占 FSPI 默认 MISO）
+2. 无 TCXO：`begin(..., tcxoVoltage=0.0f)`；禁 `setDio2AsRfSwitchCtrl()`（DIO2 悬空）
+3. 射频开关 active-high：`setRfSwitchPins(RXEN=1, TXEN=2)`
+4. 发送：`transmit(const_cast<uint8_t*>(data), len)`——RadioLib 签名非 const 但不改数据
+5. 收包：`readData(buf, maxlen)` 两参 + `getPacketLength()` 取实际长度（RadioLib 6.x）
+6. CAD：`startChannelScan()` + `getChannelScanResult()`（0=空闲 1=忙 负=错误）
+
+### 故障自救（架构 §8.2）
+- `radio_transmit` 连续 3 次失败 → `watchdog_rf_fault()`（软复位 NRST，累计 3 次整机重启）
+- `radio_init` 失败 → `watchdog_rf_fault()` + 返回 false；main.cpp 里重试一次
