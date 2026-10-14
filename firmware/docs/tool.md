@@ -24,13 +24,13 @@
 | toolchain-riscv32-esp | 8.4.0 | RISC-V 工具链 |
 | tool-esptoolpy | 自动 | 烧录工具（esptool） |
 
-## 3. 项目依赖库（`platformio.ini` 里 `lib_deps` 声明，自动下载）
+## 3. 项目依赖库（全部本地化到 `lib/`，完全离线编译）
 
-| 库 | 版本 | 作用 |
-|---|---|---|
-| jgromes/RadioLib | ^6.6.0 | LoRa 射频驱动（SX126x/LLCC68） |
-| adafruit/Adafruit NeoPixel | ^1.12.0 | WS2818 RGB LED |
-| lib/mavlink2 | 本地 | MAVLink 2 协议头文件（手动下载解压） |
+| 库 | 位置 | 版本 | 作用 |
+|---|---|---|---|
+| RadioLib | lib/radiolib/ | 6.6.0 | LoRa 射频驱动（SX126x/LLCC68） |
+| Adafruit NeoPixel | lib/neopixel/ | 1.15.5 | WS2818 RGB LED |
+| MAVLink 2 | lib/mavlink2/ | — | MAVLink 2 协议头文件 |
 
 > ⚠️ **mavlink 用 git 拉 GitHub**：校园网/受限网络连不上 GitHub 时，编译会卡在这一步（`UserSideException: Please install Git client`，或 clone 超时）。解决：
 > - **方法 A（推荐）**：给 git 配国内加速，之后所有 GitHub clone 自动走代理：
