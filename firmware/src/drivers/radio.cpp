@@ -83,6 +83,11 @@ bool radio_init(float freq, float bw, uint8_t sf, uint8_t cr,
         return false;
     }
 
+    // P1-11：RadioLib 的 begin() 会把 OCP 设成 60mA，而 +22dBm 发射需 120~140mA
+    // （Semtech 建议 140mA）。功率 > 14dBm 时放宽 OCP，避免高功率发射触发过流保护。
+    // 必须在 begin() 之后调用——begin() 内部会把 OCP 设回 60mA。
+    if (pwr > 14) g_radio->setCurrentLimit(140.0f);
+
     attachInterrupt(digitalPinToInterrupt(PIN_LORA_DIO1), radio_isr, RISING);
     g_radio_ready = true;
     g_cur_sf = sf;
@@ -292,6 +297,7 @@ static void radio_retry_tick() {
 
     int16_t st = g_radio->begin(g_init_freq, g_init_bw, g_init_sf, g_init_cr, g_init_sync, g_init_pwr, 8, 0.0f);
     if (st == RADIOLIB_ERR_NONE) {
+        if (g_init_pwr > 14) g_radio->setCurrentLimit(140.0f);
         attachInterrupt(digitalPinToInterrupt(PIN_LORA_DIO1), radio_isr, RISING);
         g_radio_ready = true;
         g_cur_sf = g_init_sf;

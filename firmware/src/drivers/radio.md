@@ -22,6 +22,7 @@
 3. **禁止** `setDio2AsRfSwitchCtrl()`（DIO2 悬空）；晶振版不调 `setTCXO`
 4. CAD：`radio.startChannelScan()` 启动 → **状态驱动轮询** `getChannelScanResult()` 直到 `CAD_DONE`/`CAD_DETECTED`（超时按 SF/BW 推导：5 符号 + 3ms，SF7≈8ms / SF10≈43ms；P0-3）
 5. 中断：DIO1 挂 GPIO 中断，ISR 内只发任务通知给 `rf_task`
+6. **OCP 过流保护**（P1-11）：`begin()` 内部会把 OCP 设成 60mA，而 +22dBm 发射需 120~140mA（Semtech 建议 140mA）→ **功率 > 14dBm 时必须在 `begin()` 之后**调 `setCurrentLimit(140.0f)`；两处 `begin()`（`radio_init` 成功路径、`radio_retry_tick` 重试成功分支）都要，否则高功率发射可能触发过流保护（输出被限/波形失真）。≤14dBm 保持库默认 60mA
 
 ## 对外接口
 见 `radio.h`。所有芯片实现同一组函数：
