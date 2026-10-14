@@ -67,8 +67,8 @@ drivers: radio ─┬─ RadioLib, pinmap
 ## 4. 给大模型的固定提示词模板
 
 ```
-读 mesh数传/firmware/src/<层>/<模块>.md 和 <模块>.h，
-以及 mesh数传/mesh_firmware_architecture.md（相关章节见 .md 里的引用）。
+读 EMlink/firmware/src/<层>/<模块>.md 和 <模块>.h，
+以及 EMlink/mesh_firmware_architecture.md（相关章节见 .md 里的引用）。
 按 .h 声明的接口实现 <模块>.cpp，严格按架构文档的约定，
 只实现本模块，不改其他文件，不引入未声明的依赖。
 ```

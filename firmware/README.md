@@ -42,7 +42,7 @@ firmware/
 一次只喂一个模块，提示词模板：
 
 ```
-读 mesh数传/firmware/src/link/frame_codec.md 和 frame_codec.h，
+读 EMlink/firmware/src/link/frame_codec.md 和 frame_codec.h，
 以及 ../mesh_firmware_architecture.md 第 4 节的帧格式。
 按 .h 里声明的接口实现 frame_codec.cpp，帧格式严格按架构文档，
 只实现这个模块，不要改动其他文件，不要引入未声明的依赖。

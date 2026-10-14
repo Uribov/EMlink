@@ -71,6 +71,6 @@ git config --global url."https://ghproxy.com/https://github.com/".insteadOf "htt
 
 # 5. 拉项目 + 编译
 git clone <你的仓库>
-cd mesh数传/firmware
+cd EMlink/firmware
 pio run -e esp32s3-supermini-e220-900m22s   # 首次下载平台+工具链+依赖，5~15 分钟
 ```
