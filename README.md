@@ -204,7 +204,13 @@ EMlink/
 ├── mesh_firmware_architecture.md   # ★ 总架构文档（全局约定的唯一真相源）
 ├── README.md
 ├── LICENSE
-├── docs/reviews/                   # 审查与修复留档（审查日志 + 修复对照表 + 每项任务书）
+├── ROADMAP.md                      # 项目尺度 + 待办（按触发条件排队，含"上板后再做"的项）
+├── todo.md                         # 板到货后的验证清单（钩子：每条写清看什么、什么算通过）
+├── docs/
+│   ├── BRINGUP.md                  # 开机操作卡（第一次上板照它走）
+│   ├── plans/                      # 方案与拍板记录
+│   └── reviews/                    # 审查与修复留档（审查日志 + 修复对照表 + 每项任务书）
+├── tools/                          # 开发工具：依赖体检 check_deps.py、批量烧录 flash_batch.sh、boot_app0.bin
 └── firmware/
     ├── platformio.ini              # 多方案配置（每个 [env] = 一块板 + 一个射频）
     ├── partitions_ota.csv          # OTA 双分区表
@@ -285,6 +291,10 @@ EMlink/
 | [`firmware/docs/HARDWARE_VARIANTS.md`](firmware/docs/HARDWARE_VARIANTS.md) | 如何适配新开发板 / 新射频芯片 |
 | [`firmware/docs/tool.md`](firmware/docs/tool.md) | 开发环境搭建（Windows / Linux） |
 | [`docs/reviews/`](docs/reviews/README.md) | **审查与修复留档**：代码审查日志、修复对照表（条目→提交→验证→遗留）、每个修复项的任务书 |
+| [`docs/BRINGUP.md`](docs/BRINGUP.md) | **开机操作卡**（第一次上板照它走）：备件与接线、串口权限、整片擦除、烧录命令、开机该看什么、`status` 分层怎么读、常见现象对照表、安全红线 |
+| [`todo.md`](todo.md) | **板到货后的验证清单**：开箱第一步（同版本同刷 / 整片擦除）、M0 与 A/B 档逐项复验、验收矩阵、已知限制 |
+| [`ROADMAP.md`](ROADMAP.md) | **项目尺度与待办**：为什么不过度工程化（个人低成本开源项目）、本批已完成、推后到上板之后的事、按触发条件排队的工程化项 |
+| [`docs/plans/`](docs/plans/M2_APP_MID_DRV_PLAN.md) | **方案与拍板记录**：应用-中间-驱动三层契约、体检结果、决策点与结论 |
 
 ---
 
