@@ -10,6 +10,7 @@
 #include "duty.h"
 #include "../service/nvs_cfg.h"
 #include "../service/watchdog.h"
+#include "../service/ratelimit.h"
 
 // ACK 帧线上长度：仅帧头 + CRC（无 payload）
 #define MAC_ACK_FRAME_LEN (FRAME_HDR_LEN + FRAME_CRC_LEN)
@@ -58,6 +59,13 @@ mac_result_t mac_send(const uint8_t* frame, size_t len, bool ack_req) {
     // 占空比限流：空中时间按当前 SF/BW/CR 精确推导（P1-2）；未就绪时按满预算记账（最保守）
     uint32_t airtime = radio_airtime_ms(len);
     if (airtime == 0) airtime = DUTY_MAX_MS_PER_SEC;
+
+    // P1-10：按 QoS 的令牌桶（控制类有保底份额）。超限直接丢，绝不死等——
+    // 死等会把心跳/命令排在遥测后面，还会堵住 adr_tick()
+    if (!ratelimit_allow(frame_qos_of(frame), airtime)) {
+        return MAC_DROP_RATE;
+    }
+
     while (!duty_reserve(airtime)) {
         vTaskDelay(pdMS_TO_TICKS(10));
         watchdog_feed();   // 限流等待可能接近 1s，防 WDT 误触发
@@ -154,6 +162,7 @@ static void mac_task_func(void* arg) {
 }
 
 void mac_start(void) {
+    ratelimit_init();   // P1-10：令牌桶是发送路径的准入层，必须在任何发送之前初始化
     cfg_t c;
     if (nvs_cfg_load(&c) && c.node_id != 0) g_node_id = c.node_id;
     xTaskCreatePinnedToCore(mac_task_func, "mac", MAC_TASK_STACK,

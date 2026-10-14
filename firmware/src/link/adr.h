@@ -27,7 +27,7 @@ void adr_init();
 // 收到 BEACON 帧时调用（mesh_task 里）；relay_id==0 表示本机直收（权威信标），否则多跳转发
 void adr_on_beacon(uint8_t src_id, uint8_t relay_id);
 
-// 周期 tick（由 stats_task 1s 调一次）；GCS 在周期起点发 BEACON + 切 SF
+// 周期 tick（由 mac_task 循环每轮调一次）；GCS 在周期起点发 BEACON + 切 SF
 void adr_tick();
 
 // 当前应该用的 SF（供 CLI/stats 查询）

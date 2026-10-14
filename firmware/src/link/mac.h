@@ -20,6 +20,7 @@ typedef enum {
     MAC_ACK_TIMEOUT,   // 重传耗尽仍未收 ACK
     MAC_LBT_BUSY,      // 3 次 LBT 都忙（已硬发）
     MAC_TX_ERR,        // 射频发送失败
+    MAC_DROP_RATE,   // 被流量整形丢弃（P1-10：不阻塞、由上层计数）
 } mac_result_t;
 
 // 发送一帧：LBT -> 发送 -> (可选)等 ACK -> 退避重传

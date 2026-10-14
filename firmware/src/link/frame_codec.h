@@ -76,5 +76,8 @@ size_t frame_encode(const frame_t* f, uint8_t* buf, size_t cap);
 // 线上字节 -> 内存结构；CRC 通过返回 true（payload 指针指向 buf 内部）
 bool frame_decode(const uint8_t* buf, size_t len, frame_t* f);
 
+// 从线上帧字节取 QoS（偏移 1 的高 2 位），免去调用方解码整帧
+static inline uint8_t frame_qos_of(const uint8_t* buf) { return (uint8_t)((buf[1] >> 6) & 0x03); }
+
 // CRC16-CCITT，覆盖 header+payload
 uint16_t frame_crc16(const uint8_t* data, size_t len);

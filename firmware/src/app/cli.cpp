@@ -17,6 +17,7 @@
 #include "../app/stats.h"
 #include "../link/duty.h"
 #include "../link/adr.h"
+#include "../service/ratelimit.h"
 #include <string.h>
 
 static TaskHandle_t g_cli_task = nullptr;
@@ -132,7 +133,9 @@ void cli_handle_line(const char* line) {
         snprintf(line, sizeof(line), "RF: %s\r\n",
                  radio_is_ready() ? "就绪" : "初始化失败（每 10s 重试，LED 红灯）");
         cli_print(line);
-        snprintf(line, sizeof(line), "占空比: 超限放行=%u 次\r\n", (unsigned)duty_oversize_count());
+        snprintf(line, sizeof(line), "占空比: 超限放行=%u 次  限流丢弃=%u 次（控制类 %u，超桶放行 %u）\r\n",
+                 (unsigned)duty_oversize_count(), (unsigned)ratelimit_drop_count(),
+                 (unsigned)ratelimit_ctrl_drop_count(), (unsigned)ratelimit_oversize_count());
         cli_print(line);
         snprintf(line, sizeof(line), "认证失败: %u 帧（只影响本机投递，不影响转发）\r\n",
                  (unsigned)mesh_drop_auth_count());

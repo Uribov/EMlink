@@ -270,6 +270,7 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 - **ACK/重传**：`ack_req=1` 的帧，收方回 ACK；发方超时未收到→重发，最多 3 次，退避 100→300→700ms。**ACK 超时随 SF 自适应**（P1-2）：`max(NVS 值 300ms, ACK 帧(16B) 空中时间 + 50ms)`，SF7≈300ms、SF10≈380ms——ACK 帧自身在 SF10 要 330ms，写死 300ms 必然误判超时。
 - **BEACON**：GCS 每 5s 广播一次（由 adr 模块管，固定 SF10 锚点），节点据此对齐速率表 + 评估邻居链路质量（RSSI/SNR）。
 - **占空比**：每节点每秒空中发射时间上限 10%（100ms/s），超限排队稍等——守法规、让空口。空中时间按 Semtech 公式精确算（`drivers/airtime`，P1-2），**200B@BW125/CR4/5：SF7 = 318ms、SF10 = 1846ms**；单帧就超 100ms 预算时放行并计数（否则会死等），计数可在 CLI `status` 看到。
+- **流量整形（P1-10，`service/ratelimit`）**：发送前先过**按 QoS 的令牌桶**——控制类(QOS2)有保底份额（10% 空口时间），用户类(QOS0/1)拿剩余 90%；计价同样是空中毫秒。**超限直接丢**（`MAC_DROP_RATE`），绝不死等：`mac_send` 与 `adr_tick()` 同任务，死等会把 ADR 时间表一起拖歪。层序：**准入整形（ratelimit）→ 占空比硬上限（duty）→ LBT → 发送**。
 
 ---
 
@@ -277,7 +278,7 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 
 - MAVLink 2 最大帧 267B（无签名），单帧明文 payload 上限 175B（加密后 +4B tag = 179），超长消息拆片。
 - **分片头（4B）**：`msg_id(1) + frag_index(1) + frag_total(1) + frag_seq(1)`。
-- 重组键 = `(orig_sysid, frag_seq)`；2s 未拼齐→整组作废，计 `reasm_timeout`。
+- 重组键 = `(src_id, orig_sysid, frag_seq)`（P1-9：漏 `src_id` 会让同 sysid 的两机串包）；2s 未拼齐→整组作废，计 `reasm_timeout`。
 - 缺件：收方回 NACK（`frag_index` 缺失位图），发方**只补缺件**，不重发全部。
 - 遥测/心跳/单航点项（≤38B）**不分片**，只有大消息才触发。
 
