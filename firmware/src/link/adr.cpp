@@ -9,10 +9,10 @@
 #include "../net/mesh.h"
 #include "../app/role.h"
 
-static uint8_t  g_sf = ADR_SF_SLOW;   // 当前 SF（默认先停慢速等 BEACON）
-static bool     g_has_beacon = false; // 是否已对齐到周期起点
-static uint32_t g_epoch_ms  = 0;      // 本周期起点（对齐后有效）
-static uint32_t g_last_beacon_ms = 0; // GCS 上次发 BEACON 时刻
+static volatile uint8_t  g_sf = ADR_SF_SLOW;   // 当前 SF（默认先停慢速等 BEACON）
+static volatile bool     g_has_beacon = false; // 是否已对齐到周期起点
+static volatile uint32_t g_epoch_ms  = 0;      // 本周期起点（对齐后有效）
+static volatile uint32_t g_last_beacon_ms = 0; // GCS 上次发 BEACON 时刻
 
 void adr_init() {
     g_sf = ADR_SF_SLOW;

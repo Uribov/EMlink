@@ -25,6 +25,7 @@ static dedup_slot_t g_dedup[MESH_MAX_SRC];
 static uint8_t g_my_node_id = 1;
 static uint8_t g_my_ttl = FRAME_DEF_TTL;
 static uint16_t g_seq = 0;
+static portMUX_TYPE g_seq_mux = portMUX_INITIALIZER_UNLOCKED;   // 跨核保护 g_seq
 
 static TaskHandle_t g_mesh_task = nullptr;
 static mesh_rx_cb_t g_rx_cb = nullptr;
@@ -118,6 +119,14 @@ bool mesh_ingress(const frame_t* f) {
     return true;
 }
 
+// 分配发送序号（跨核原子）
+uint16_t mesh_next_seq() {
+    portENTER_CRITICAL(&g_seq_mux);
+    uint16_t s = g_seq++;
+    portEXIT_CRITICAL(&g_seq_mux);
+    return s;
+}
+
 // 本机发起发送：决定 relay_id（单播查下一跳，未知回退广播）
 bool mesh_send(uint8_t dst_id, uint8_t qos, bool ack_req,
                const uint8_t* payload, size_t len, uint8_t orig_sysid) {
@@ -132,7 +141,7 @@ bool mesh_send(uint8_t dst_id, uint8_t qos, bool ack_req,
     f.src_id     = g_my_node_id;
     f.dst_id     = dst_id;
     f.relay_id   = 0;
-    f.seq        = g_seq++;
+    f.seq        = mesh_next_seq();
     f.ttl        = g_my_ttl;
     f.orig_sysid = orig_sysid;
     f.payload    = payload;
@@ -177,7 +186,7 @@ int32_t mesh_ping(uint8_t dst_id, uint32_t timeout_ms, int16_t* rssi_out) {
     f.src_id     = g_my_node_id;
     f.dst_id     = dst_id;
     f.relay_id   = 0;
-    f.seq        = g_seq++;
+    f.seq        = mesh_next_seq();
     f.ttl        = g_my_ttl;
     f.orig_sysid = 0;
     f.payload    = nullptr;
@@ -239,7 +248,7 @@ bool mesh_send_ctrl(uint8_t type, uint8_t dst_id, uint8_t qos, bool ack_req,
     f.src_id     = g_my_node_id;
     f.dst_id     = dst_id;
     f.relay_id   = 0;
-    f.seq        = g_seq++;
+    f.seq        = mesh_next_seq();
     f.ttl        = g_my_ttl;
     f.orig_sysid = 0;
     f.payload    = payload;
@@ -279,7 +288,7 @@ bool mesh_send_beacon() {
     f.src_id     = g_my_node_id;
     f.dst_id     = 0;              // 广播
     f.relay_id   = 0;
-    f.seq        = g_seq++;
+    f.seq        = mesh_next_seq();
     f.ttl        = 1;              // 只一跳，不转发
     f.orig_sysid = 0;
     f.payload    = nullptr;

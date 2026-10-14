@@ -183,6 +183,29 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 
 > **栈大小**：先启用 `configCHECK_FOR_STACK_OVERFLOW` 跑一轮，按实测栈使用反推各任务栈大小，再回填 §3.1 的栈值。
 
+### 3.5 跨核共享状态与锁（并发安全约定，写代码前必读）
+
+双核（core0 射频/组网，core1 交互/协议）会并发访问模块 static 状态。约定：
+
+| 共享状态 | 访问者（核） | 保护方式 |
+|---|---|---|
+| `mesh` 的 `g_seq`（帧序号） | core0 转发/beacon + core1 发送 | **`mesh_next_seq()` + portMUX**（全系统唯一 seq 源，分片帧也用它，禁止各模块自建 seq 计数器） |
+| `route` 的 `g_paths`（反向路径表） | core0 学习 + core0/1 查下一跳 | portMUX |
+| `addr_map` 的 `g_map`（sysid↔node） | core0 学习 + core1 导出 | portMUX |
+| `crypto` 的 `g_key`（密钥） | core0 加解密 + core1 设密钥 | portMUX（锁只护 16B 拷贝，不护整个加解密） |
+| `mav_router` 的 `g_tx_cache`（分片缓存） | core1 缓存 + core0 NACK 补发 | FreeRTOS mutex |
+| `mav_router` 的 `g_rx_uart/g_rx_usb`（接收状态机） | **各自独立，禁止共用**（三源共用一个字节流缓冲会跨核串包） | 无锁（单核独占） |
+| `ota` 的 `g_server` | core1 | 由 ota_task 唯一持有/删除；ota_stop 只置标志，**禁止在回调里 vTaskDelete 自己** |
+| `adr` 的 `g_sf/g_epoch_ms/...` | core0 mac_task 写 + mesh_task 写 + core1 读 | `volatile` |
+| `frag` 的 `g_reasm` | core0 mesh_task（reassemble + tick） | 无锁（单核单任务） |
+| `frag` 的 `g_frag_seq` | core1 mavlink_task（split） | 无锁（单核） |
+
+**铁律**：
+1. **seq 只有一个源**：`mesh_next_seq()`。任何模块发帧都从它取 seq，禁止再建 `g_xxx_seq` 计数器（多计数器会导致同一节点 seq 重叠 → 去重误判丢帧）。
+2. **字节流状态机一源一套**：uart/usb 各自独立 `rx_state_t`；mesh 帧 payload 是完整消息，直接 route_msg 不走状态机。
+3. **任务不能删自己**：`vTaskDelete` 只删别的任务；删自己用「置标志 + 任务循环退出 + 尾部 `vTaskDelete(nullptr)`」模式。
+4. 统计计数器（tx/rx/ack 等）跨核读是"近似值"，接受陈旧读，不强加锁。
+
 ---
 
 ## 4. Mesh 帧格式、地址、去重、TTL、路由

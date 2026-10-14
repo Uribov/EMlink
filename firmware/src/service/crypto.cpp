@@ -9,7 +9,8 @@
 #include <string.h>
 
 static uint8_t g_key[CRYPTO_KEY_LEN];
-static bool    g_enabled = false;
+static volatile bool g_enabled = false;
+static portMUX_TYPE g_key_mux = portMUX_INITIALIZER_UNLOCKED;   // 跨核保护 g_key
 
 static bool key_is_zero(void) {
     for (int i = 0; i < CRYPTO_KEY_LEN; i++)
@@ -18,10 +19,14 @@ static bool key_is_zero(void) {
 }
 
 void crypto_init() {
+    portENTER_CRITICAL(&g_key_mux);
     memset(g_key, 0, sizeof(g_key));
+    portEXIT_CRITICAL(&g_key_mux);
     cfg_t c;
     nvs_cfg_load(&c);
+    portENTER_CRITICAL(&g_key_mux);
     memcpy(g_key, c.crypto_key, CRYPTO_KEY_LEN);
+    portEXIT_CRITICAL(&g_key_mux);
     g_enabled = !key_is_zero();
 }
 
@@ -45,9 +50,15 @@ bool crypto_seal_frame(frame_t* f, uint8_t* scratch, size_t scratch_cap) {
     uint8_t nonce[CRYPTO_NONCE_LEN];
     build_nonce(nonce, f->src_id, f->seq);
 
+    // 加锁拷 key 到局部（setkey 是耗时操作，锁只护 16B 拷贝，不护整个加解密）
+    uint8_t key[CRYPTO_KEY_LEN];
+    portENTER_CRITICAL(&g_key_mux);
+    memcpy(key, g_key, CRYPTO_KEY_LEN);
+    portEXIT_CRITICAL(&g_key_mux);
+
     mbedtls_ccm_context ctx;
     mbedtls_ccm_init(&ctx);
-    int r = mbedtls_ccm_setkey(&ctx, MBEDTLS_CIPHER_ID_AES, g_key, 128);
+    int r = mbedtls_ccm_setkey(&ctx, MBEDTLS_CIPHER_ID_AES, key, 128);
     if (r == 0) {
         // 输出布局：密文（与明文等长）+ tag 4B；AAD 空（帧头完整性靠 CRC，防窃听是首要目标）
         r = mbedtls_ccm_encrypt_and_tag(&ctx, f->payload_len, nonce, CRYPTO_NONCE_LEN,
@@ -72,9 +83,14 @@ size_t crypto_open_frame(const frame_t* f, uint8_t* out, size_t out_cap) {
     uint8_t nonce[CRYPTO_NONCE_LEN];
     build_nonce(nonce, f->src_id, f->seq);
 
+    uint8_t key[CRYPTO_KEY_LEN];
+    portENTER_CRITICAL(&g_key_mux);
+    memcpy(key, g_key, CRYPTO_KEY_LEN);
+    portEXIT_CRITICAL(&g_key_mux);
+
     mbedtls_ccm_context ctx;
     mbedtls_ccm_init(&ctx);
-    int r = mbedtls_ccm_setkey(&ctx, MBEDTLS_CIPHER_ID_AES, g_key, 128);
+    int r = mbedtls_ccm_setkey(&ctx, MBEDTLS_CIPHER_ID_AES, key, 128);
     if (r == 0) {
         r = mbedtls_ccm_auth_decrypt(&ctx, clen, nonce, CRYPTO_NONCE_LEN,
                                      nullptr, 0, f->payload, out,
@@ -107,13 +123,17 @@ bool crypto_set_key_hex(const char* hex) {
     memcpy(c.crypto_key, key, CRYPTO_KEY_LEN);
     nvs_cfg_save(&c);
 
+    portENTER_CRITICAL(&g_key_mux);
     memcpy(g_key, key, CRYPTO_KEY_LEN);
+    portEXIT_CRITICAL(&g_key_mux);
     g_enabled = true;
     return true;
 }
 
 void crypto_disable() {
+    portENTER_CRITICAL(&g_key_mux);
     memset(g_key, 0, sizeof(g_key));
+    portEXIT_CRITICAL(&g_key_mux);
     g_enabled = false;
 
     cfg_t c;

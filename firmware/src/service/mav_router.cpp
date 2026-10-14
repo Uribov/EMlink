@@ -21,15 +21,18 @@ static uint8_t g_local_sysid = 0;
 static uint8_t g_role = ROLE_UNSET;
 static uint8_t g_node_id = 1;
 static uint8_t g_ttl = FRAME_DEF_TTL;
-static uint16_t g_mesh_seq = 0;
 
-// 接收状态机
-static uint8_t g_rxbuf[300];
-static size_t  g_rxlen = 0;
-static size_t  g_expected = 0;
+// 接收状态机（uart / usb 各独立一套；mesh 来源是完整消息，不走状态机）
+struct rx_state_t {
+    uint8_t buf[300];
+    size_t  len;
+    size_t  expected;
+};
+static rx_state_t g_rx_uart;
+static rx_state_t g_rx_usb;
 
 // 心跳
-static uint32_t g_last_hb_ms = 0;
+static volatile uint32_t g_last_hb_ms = 0;
 
 // 最近一次分片发送缓存（NACK 补发用）。跨核访问（core1 发、core0 补），加锁。
 static SemaphoreHandle_t g_tx_cache_lock = nullptr;
@@ -65,8 +68,8 @@ static bool mav_crc_ok(const uint8_t* buf, size_t len) {
 
 void mav_router_init(uint8_t local_sysid) {
     g_local_sysid = local_sysid;
-    g_rxlen = 0;
-    g_expected = 0;
+    memset(&g_rx_uart, 0, sizeof(g_rx_uart));
+    memset(&g_rx_usb, 0, sizeof(g_rx_usb));
     if (!g_tx_cache_lock) g_tx_cache_lock = xSemaphoreCreateMutex();
     cfg_t c;
     if (nvs_cfg_load(&c)) {
@@ -117,7 +120,7 @@ void mav_router_on_nack(const uint8_t* payload, size_t len) {
         frame_t f = {};
         f.type = FRAME_DATA; f.qos = qos; f.ack_req = false; f.frag = true;
         f.proto = PROTO_MAVLINK; f.src_id = g_node_id; f.dst_id = 0;
-        f.seq = g_mesh_seq++; f.ttl = g_ttl; f.orig_sysid = sysid;
+        f.seq = mesh_next_seq(); f.ttl = g_ttl; f.orig_sysid = sysid;
         memcpy(f.frag_hdr, &h, 4);
         f.payload = g_resend + off; f.payload_len = plen;
 
@@ -211,7 +214,7 @@ static void route_msg(const uint8_t* msg, size_t len, uint8_t source) {
                 frame_t f = {};
                 f.type = FRAME_DATA; f.qos = qos; f.ack_req = false; f.frag = true;
                 f.proto = PROTO_MAVLINK; f.src_id = g_node_id; f.dst_id = 0;
-                f.seq = g_mesh_seq++; f.ttl = g_ttl; f.orig_sysid = sysid;
+                f.seq = mesh_next_seq(); f.ttl = g_ttl; f.orig_sysid = sysid;
                 memcpy(f.frag_hdr, &h, 4);
                 f.payload = pieces[i]; f.payload_len = plen;
 
@@ -239,72 +242,44 @@ void mav_router_handle_msg(const uint8_t* msg, size_t len) {
     route_msg(msg, len, SRC_MESH);
 }
 
-void mav_router_feed(const uint8_t* data, size_t len) {
-    // 来自 mesh 的字节流（mesh_rx_cb 透传），按帧切分
+// 通用字节流切帧：喂入一段字节，切出完整 MAVLink 帧后回调 route_msg
+static void feed_bytes(rx_state_t* st, const uint8_t* data, size_t len, uint8_t source) {
     for (size_t i = 0; i < len; i++) {
         uint8_t c = data[i];
-        if (g_rxlen == 0) {
-            if (c == MAVLINK2_STX) { g_rxbuf[0] = c; g_rxlen = 1; }
-        } else if (g_rxlen == 1) {
-            g_rxbuf[1] = c;
-            g_expected = MAVLINK2_HEADER_LEN + c + MAVLINK2_CRC_LEN;
-            if (g_expected > sizeof(g_rxbuf)) { g_rxlen = 0; continue; }
-            g_rxlen = 2;
+        if (st->len == 0) {
+            if (c == MAVLINK2_STX) { st->buf[0] = c; st->len = 1; }
+        } else if (st->len == 1) {
+            st->buf[1] = c;
+            st->expected = MAVLINK2_HEADER_LEN + c + MAVLINK2_CRC_LEN;
+            if (st->expected > sizeof(st->buf)) { st->len = 0; continue; }
+            st->len = 2;
         } else {
-            g_rxbuf[g_rxlen++] = c;
-            if (g_rxlen == g_expected) {
-                if (mav_crc_ok(g_rxbuf, g_rxlen)) {
-                    route_msg(g_rxbuf, g_rxlen, SRC_MESH);
+            st->buf[st->len++] = c;
+            if (st->len == st->expected) {
+                if (mav_crc_ok(st->buf, st->len)) {
+                    route_msg(st->buf, st->len, source);
                 }
-                g_rxlen = 0;
+                st->len = 0;
             }
         }
     }
 }
 
-// 内部：来自 UART / USB 的字节流（mavlink_task 用）
-static void feed_uart(const uint8_t* data, size_t len) {
-    for (size_t i = 0; i < len; i++) {
-        uint8_t c = data[i];
-        if (g_rxlen == 0) {
-            if (c == MAVLINK2_STX) { g_rxbuf[0] = c; g_rxlen = 1; }
-        } else if (g_rxlen == 1) {
-            g_rxbuf[1] = c;
-            g_expected = MAVLINK2_HEADER_LEN + c + MAVLINK2_CRC_LEN;
-            if (g_expected > sizeof(g_rxbuf)) { g_rxlen = 0; continue; }
-            g_rxlen = 2;
-        } else {
-            g_rxbuf[g_rxlen++] = c;
-            if (g_rxlen == g_expected) {
-                if (mav_crc_ok(g_rxbuf, g_rxlen)) {
-                    route_msg(g_rxbuf, g_rxlen, SRC_UART);
-                }
-                g_rxlen = 0;
-            }
-        }
+void mav_router_feed(const uint8_t* data, size_t len) {
+    // 来自 mesh 的完整 MAVLink 消息（mesh 每帧 payload 就是一条完整消息，
+    // 分片重组后也是完整消息），无需字节流切帧，直接路由。
+    if (len >= MAVLINK2_HEADER_LEN + MAVLINK2_CRC_LEN && mav_crc_ok(data, len)) {
+        route_msg(data, len, SRC_MESH);
     }
+}
+
+// 内部：来自 UART / USB 的字节流（mavlink_task 用），各用独立状态机
+static void feed_uart(const uint8_t* data, size_t len) {
+    feed_bytes(&g_rx_uart, data, len, SRC_UART);
 }
 
 static void feed_usb(const uint8_t* data, size_t len) {
-    for (size_t i = 0; i < len; i++) {
-        uint8_t c = data[i];
-        if (g_rxlen == 0) {
-            if (c == MAVLINK2_STX) { g_rxbuf[0] = c; g_rxlen = 1; }
-        } else if (g_rxlen == 1) {
-            g_rxbuf[1] = c;
-            g_expected = MAVLINK2_HEADER_LEN + c + MAVLINK2_CRC_LEN;
-            if (g_expected > sizeof(g_rxbuf)) { g_rxlen = 0; continue; }
-            g_rxlen = 2;
-        } else {
-            g_rxbuf[g_rxlen++] = c;
-            if (g_rxlen == g_expected) {
-                if (mav_crc_ok(g_rxbuf, g_rxlen)) {
-                    route_msg(g_rxbuf, g_rxlen, SRC_USB);
-                }
-                g_rxlen = 0;
-            }
-        }
-    }
+    feed_bytes(&g_rx_usb, data, len, SRC_USB);
 }
 
 // ---- mavlink_task：从 q_uart_rx / q_usb_rx 收 MAVLink 字节流 ----

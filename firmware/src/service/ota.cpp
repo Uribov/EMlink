@@ -17,7 +17,7 @@
 
 static WebServer*   g_server = nullptr;
 static TaskHandle_t g_ota_task = nullptr;
-static bool         g_active = false;
+static volatile bool g_active = false;
 static uint8_t      g_node_id = 1;
 
 // 角色号 → 字符串（网页显示用；与 nvs_cfg 内部约定一致）
@@ -195,13 +195,20 @@ static void handle_exit() {
     ota_stop();
 }
 
-// ---- ota_task：循环 handleClient ----
+// ---- ota_task：循环 handleClient；g_active 变 false 时自行清理并退出 ----
 static void ota_task_func(void* arg) {
     (void)arg;
-    for (;;) {
+    while (g_active) {
         if (g_server) g_server->handleClient();
         vTaskDelay(pdMS_TO_TICKS(10));
     }
+    // 任务自己清理（g_server 的唯一删除者，避免跨任务 use-after-free）
+    if (g_server) { g_server->stop(); delete g_server; g_server = nullptr; }
+    WiFi.mode(WIFI_OFF);
+    radio_resume();
+    g_ota_task = nullptr;
+    Serial.println("[ota] 已退出维护模式，LoRa 恢复");
+    vTaskDelete(nullptr);   // 删自己
 }
 
 void ota_start() {
@@ -248,14 +255,7 @@ void ota_start() {
 
 void ota_stop() {
     if (!g_active) return;
-    g_active = false;
-
-    if (g_ota_task) { vTaskDelete(g_ota_task); g_ota_task = nullptr; }
-    if (g_server)   { g_server->stop(); delete g_server; g_server = nullptr; }
-    WiFi.mode(WIFI_OFF);
-
-    radio_resume();
-    Serial.println("[ota] 已退出维护模式，LoRa 恢复");
+    g_active = false;   // 通知 ota_task 退出；它自行清理 g_server / WiFi / radio
 }
 
 bool ota_active() { return g_active; }

@@ -25,6 +25,10 @@ void mesh_set_rx_cb(mesh_rx_cb_t cb);
 bool mesh_send(uint8_t dst_id, uint8_t qos, bool ack_req,
                const uint8_t* payload, size_t len, uint8_t orig_sysid);
 
+// 分配发送序号（跨核原子，portMUX 保护）。全系统唯一 seq 源，
+// 普通帧/分片帧/控制帧都从这里取，避免多计数器 seq 重叠导致去重误判。
+uint16_t mesh_next_seq();
+
 // 发控制帧（FRAME_NACK / FRAME_CFG 等）：type 自选，无 MAVLink 载荷
 // payload 走加密；单播同 mesh_send 的 relay 逻辑
 bool mesh_send_ctrl(uint8_t type, uint8_t dst_id, uint8_t qos, bool ack_req,
