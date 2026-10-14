@@ -12,6 +12,7 @@ role gcs|air|relay   设置角色
 set <键> <值>         改配置      get <键>      读配置
 save                  保存        reset         重启
 status                看状态      stats         看统计
+factory               恢复出厂默认（清 role/密钥/参数，P0-4）
 crypto <32hex>|off    设/关加密密钥
 wifi [off]            开/关 WiFi 维护模式
 scan                  扫邻居 + 最近收包信号
@@ -23,7 +24,7 @@ help                  帮助
 
 ## 关键实现点
 1. 行缓冲 + 回车解析；参数用空白分词
-2. `set` 校验取值范围（sf 7~11、power 0~22、ttl 1~15…），非法报错
+2. `set` 的取值校验统一由 `nvs_cfg` 的集中校验负责（P0-4），非法键/值报「设置失败：键名未知或值超出范围」
 3. `save` 后发 `EV_CFG_CHANGED`，各模块重载
 
 ## 对外接口
@@ -49,7 +50,9 @@ help                  帮助
 | `get [key]` | `nvs_cfg_get`（无 key 打印全部） |
 | `save` | 发 `EV_CFG_CHANGED`（各模块重载） |
 | `reset` | `esp_restart()` |
-| `status` / `stats` | 打印状态 / `stats_print` |
+| `factory` | `nvs_cfg_factory()` + `nvs_cfg_save()` → 恢复出厂默认（P0-4） |
+| `status` | 三行：role / node_id+撞号冲突计数 / RF 就绪状态（P0-4 扩充） |
+| `stats` | `stats_print` |
 | `crypto <32hex>|off` | 设密钥 / 关闭加密 / 空=看状态 |
 | `wifi [off]` | 开/关 WiFi 维护模式（ota 模块） |
 | `scan` | 最近收包 rssi/snr + 邻居表（`route_neighbors`） |

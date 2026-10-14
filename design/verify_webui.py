@@ -131,7 +131,7 @@ def main() -> int:
 
     main_page = (S['WUI_HEAD'] + S['WUI_SUB_OPEN'] + status + S['WUI_SUB_END']
                  + S['WUI_RADIO_A'] + fields + S['WUI_RADIO_B']
-                 + S['WUI_CRYPTO'] + S['WUI_OTA'] + S['WUI_TAIL'])
+                 + S['WUI_CRYPTO'] + S['WUI_OTA'] + S['WUI_FACTORY'] + S['WUI_TAIL'])
 
     done_page = (S['WUI_HEAD'] + S['WUI_SUB_OPEN'] + status + S['WUI_SUB_END']
                  + S['WUI_DONE_A'] + '<div class="msg">参数已保存，重启后生效。</div>'
@@ -158,7 +158,8 @@ def main() -> int:
             print(f"  OK {name} 标签全闭合")
 
     must = ['id="k"', 'name="key"', 'action="/set"', 'action="/crypto"', 'action="/update"',
-            'action="/exit"', 'name="firmware"', 'name="off"', '请输入正确的格式',
+            'action="/exit"', 'action="/factory"', 'name="firmware"', 'name="off"',
+            '请输入正确的格式', '恢复出厂默认',
             'enctype="multipart/form-data"', 'id="kerr"']
     missing = [f for f in must if f not in main_page]
     if missing:

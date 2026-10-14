@@ -65,6 +65,12 @@ void setup() {
 
     // 1. 配置
     nvs_cfg_load(&g_cfg);
+    // 首次上电（NVS 里 node_id=0）：从芯片 MAC 派生并落盘，避免全网默认 1 号撞号
+    if (g_cfg.node_id == 0) {
+        g_cfg.node_id = nvs_cfg_assign_node_id();
+        nvs_cfg_save(&g_cfg);
+        Serial.printf("[cfg] node_id 自动分配 = %u（MAC 派生，已存 NVS）\n", g_cfg.node_id);
+    }
     crypto_init();   // 读密钥，判定加密开关（在射频/组网前，收发共用同一开关）
 
     // 2. 通信基础设施（最先，幂等）
@@ -72,8 +78,7 @@ void setup() {
 
     // 3. 射频 + 链路 + 网络（core0，下游先就位）
     if (!radio_init(g_cfg.freq, g_cfg.bw, g_cfg.sf, g_cfg.cr, g_cfg.syncword, g_cfg.power)) {
-        delay(50);
-        radio_init(g_cfg.freq, g_cfg.bw, g_cfg.sf, g_cfg.cr, g_cfg.syncword, g_cfg.power);
+        Serial.println("[radio] 初始化失败：LED 红灯，CLI status 可见；rf_task 每 10s 自动重试");
     }
     radio_start();
     adr_init();          // ADR：先停 SF10 等 BEACON（GCS 会主动发锚点）

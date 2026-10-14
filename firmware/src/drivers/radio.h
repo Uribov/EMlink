@@ -25,6 +25,9 @@
 bool radio_init(float freq, float bw, uint8_t sf, uint8_t cr,
                 uint16_t sync, int8_t pwr);
 
+// 射频是否就绪（init 成功且未被撤下）。未就绪时所有射频操作直接失败返回，不碰 SPI
+bool radio_is_ready(void);
+
 // 阻塞发送；返回 0 成功，负值错误码
 int16_t radio_transmit(const uint8_t* data, size_t len, uint32_t timeout_ms);
 

@@ -12,6 +12,7 @@
 #include "crypto.h"
 #include "../drivers/radio.h"
 #include "../app/role.h"
+#include "../net/mesh.h"
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Update.h>
@@ -50,6 +51,12 @@ static void add_status(String& p, const cfg_t& c) {
              enc ? "" : " off",
              enc ? "加密已启用" : "加密未启用");
     p += b;
+    // 撞号冲突提示（仅当检测到冲突才显示，静态页里看不到，运行时注入）
+    uint32_t cf = mesh_id_conflict_count();
+    if (cf > 0) {
+        snprintf(b, sizeof(b), "<span class=\"st bad\"><i></i>同号冲突 %u</span>", (unsigned)cf);
+        p += b;
+    }
 }
 
 // ---- <option> 列表（cur 命中则加 selected）----
@@ -131,6 +138,7 @@ static void handle_root() {
     p += WUI_RADIO_B;
     p += WUI_CRYPTO;
     p += WUI_OTA;
+    p += WUI_FACTORY;
     p += WUI_TAIL;
     send_page(s, p);
 }
@@ -141,33 +149,26 @@ static void handle_set() {
     cfg_t c;
     nvs_cfg_load(&c);
 
-    // 只接受页面上能选到的合法值：有一个非法就整表拒绝，
-    // 不留半套参数被写进 NVS（比如 freq=0 会让射频彻底收不到）
+    // 只接受合法值：全部经集中校验（与 CLI / 远程 FRAME_CFG 同一套规则），
+    // 有一个非法就整表拒绝，不留半套参数被写进 NVS（比如 freq=0 会让射频彻底收不到）
     bool bad = false;
-    if (s.hasArg("freq")) {
-        double f = atof(s.arg("freq").c_str());
-        if (f >= 400.0 && f <= 1000.0) c.freq = (float)f; else bad = true;
-    }
-    if (s.hasArg("sf")) {
-        int v = atoi(s.arg("sf").c_str());
-        if (v >= 7 && v <= 11) c.sf = (uint8_t)v; else bad = true;
-    }
-    if (s.hasArg("bw")) {
-        int v = atoi(s.arg("bw").c_str());
-        if (v == 125 || v == 250 || v == 500) c.bw = (uint8_t)v; else bad = true;
-    }
-    if (s.hasArg("cr")) {
-        int v = atoi(s.arg("cr").c_str());
-        if (v >= 5 && v <= 8) c.cr = (uint8_t)v; else bad = true;
-    }
-    if (s.hasArg("power")) {
-        int v = atoi(s.arg("power").c_str());
-        if (v >= -9 && v <= 30) c.power = (int8_t)v; else bad = true;
-    }
+    if (s.hasArg("freq"))  { const char* v = s.arg("freq").c_str();  if (nvs_cfg_value_ok("freq", v))  c.freq  = (float)atof(v); else bad = true; }
+    if (s.hasArg("sf"))    { const char* v = s.arg("sf").c_str();    if (nvs_cfg_value_ok("sf", v))    c.sf    = (uint8_t)atoi(v); else bad = true; }
+    if (s.hasArg("bw"))    { const char* v = s.arg("bw").c_str();    if (nvs_cfg_value_ok("bw", v))    c.bw    = (uint8_t)atoi(v); else bad = true; }
+    if (s.hasArg("cr"))    { const char* v = s.arg("cr").c_str();    if (nvs_cfg_value_ok("cr", v))    c.cr    = (uint8_t)atoi(v); else bad = true; }
+    if (s.hasArg("power")) { const char* v = s.arg("power").c_str(); if (nvs_cfg_value_ok("power", v)) c.power = (int8_t)atoi(v); else bad = true; }
 
     if (bad) { send_done(s, true, "请输入正确的格式"); return; }
     if (!nvs_cfg_save(&c)) { send_done(s, true, "写入失败：NVS 保存出错。"); return; }
     send_done(s, false, "参数已保存，重启后生效。");
+}
+
+// ---- 恢复出厂 /factory ----（提示后由用户在页面点“返回”）
+static void handle_factory() {
+    cfg_t c;
+    nvs_cfg_factory(&c);
+    if (!nvs_cfg_save(&c)) { send_done(*g_server, true, "写入失败：NVS 保存出错。"); return; }
+    send_done(*g_server, false, "已恢复出厂默认（role 已清空、密钥已清除）。请断电重启后重新配置。");
 }
 
 // ---- 设密钥 /crypto?key=<32hex> 或 /crypto?off=1 ----
@@ -280,6 +281,7 @@ void ota_start() {
     g_server->on("/",        handle_root);
     g_server->on("/set",     handle_set);
     g_server->on("/crypto",  handle_crypto);
+    g_server->on("/factory", HTTP_POST, handle_factory);
     g_server->on("/update",  HTTP_POST, handle_update_done, handle_upload);
     g_server->on("/exit",    handle_exit);
     g_server->begin();

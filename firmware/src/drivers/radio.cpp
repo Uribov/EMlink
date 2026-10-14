@@ -19,6 +19,13 @@ static float g_last_rssi = 0.0f;
 static float g_last_snr  = 0.0f;
 static bool  g_suspended = false;   // OTA 维护模式：WiFi 与 LoRa 二选一
 
+// 就绪状态 + 初始化参数（射频失败后 rf_task 每 10s 用这些参数自动重试）
+static volatile bool g_radio_ready = false;
+static float g_init_freq, g_init_bw;
+static uint8_t g_init_sf, g_init_cr;
+static uint16_t g_init_sync;
+static int8_t g_init_pwr;
+
 // DIO1 中断：只发任务通知给 rf_task，不在 ISR 里读 SPI
 static void IRAM_ATTR radio_isr() {
     BaseType_t hpw = pdFALSE;
@@ -28,6 +35,10 @@ static void IRAM_ATTR radio_isr() {
 
 bool radio_init(float freq, float bw, uint8_t sf, uint8_t cr,
                 uint16_t sync, int8_t pwr) {
+    // 先存参数（失败后的周期重试据此重新 begin）
+    g_init_freq = freq; g_init_bw = bw;
+    g_init_sf = sf; g_init_cr = cr;
+    g_init_sync = sync; g_init_pwr = pwr;
 #if defined(RADIO_SX126X)
     // SPI 引脚重映射（NSS=8/SCK=9/MOSI=10/MISO=11，架构 §0.4）
     SPI.begin(PIN_LORA_SCK, PIN_LORA_MISO, PIN_LORA_MOSI, PIN_LORA_NSS);
@@ -41,23 +52,28 @@ bool radio_init(float freq, float bw, uint8_t sf, uint8_t cr,
     // 晶振版无 TCXO：tcxoVoltage=0
     int16_t st = g_radio->begin(freq, bw, sf, cr, sync, pwr, 8, 0.0f);
     if (st != RADIOLIB_ERR_NONE) {
-        // 初始化失败：触发射频自救（软复位，累计 3 次整机重启）
+        // 初始化失败：置未就绪，触发射频自救（软复位，累计 3 次整机重启）
+        g_radio_ready = false;
         watchdog_rf_fault();
         return false;
     }
 
     attachInterrupt(digitalPinToInterrupt(PIN_LORA_DIO1), radio_isr, RISING);
+    g_radio_ready = true;
     return true;
 #else
+    g_radio_ready = false;
     return false;
 #endif
 }
+
+bool radio_is_ready(void) { return g_radio_ready; }
 
 static uint8_t g_tx_fail = 0;
 
 int16_t radio_transmit(const uint8_t* data, size_t len, uint32_t timeout_ms) {
     (void)timeout_ms;
-    if (g_suspended) return -1;
+    if (g_suspended || !g_radio_ready) return -1;
 #if defined(RADIO_SX126X)
     if (!g_radio) return -1;
     int16_t st = g_radio->transmit(const_cast<uint8_t*>(data), len);
@@ -78,7 +94,7 @@ int16_t radio_transmit(const uint8_t* data, size_t len, uint32_t timeout_ms) {
 
 bool radio_startReceive() {
 #if defined(RADIO_SX126X)
-    if (g_suspended || !g_radio) return false;
+    if (g_suspended || !g_radio || !g_radio_ready) return false;
     return g_radio->startReceive() == RADIOLIB_ERR_NONE;
 #else
     return false;
@@ -88,7 +104,7 @@ bool radio_startReceive() {
 int16_t radio_readPacket(uint8_t* buf, size_t maxlen, size_t* len,
                          float* rssi, float* snr) {
 #if defined(RADIO_SX126X)
-    if (g_suspended || !g_radio) return -1;
+    if (g_suspended || !g_radio || !g_radio_ready) return -1;
     int16_t st = g_radio->readData(buf, maxlen);
     if (st != RADIOLIB_ERR_NONE) return st;
     size_t l = g_radio->getPacketLength();
@@ -106,7 +122,7 @@ int16_t radio_readPacket(uint8_t* buf, size_t maxlen, size_t* len,
 // CAD 侦听：0=空闲 1=忙 负=错误码
 int16_t radio_channelActivity() {
 #if defined(RADIO_SX126X)
-    if (g_suspended || !g_radio) return -1;
+    if (g_suspended || !g_radio || !g_radio_ready) return -1;
     int16_t st = g_radio->startChannelScan();
     if (st != RADIOLIB_ERR_NONE) return st;
     int16_t res = g_radio->getChannelScanResult();
@@ -124,7 +140,7 @@ float radio_lastSnr()  { return g_last_snr; }
 // 运行时切 SF（ADR 用）：先 standby 再改参数再回接收态
 bool radio_set_sf(uint8_t sf) {
 #if defined(RADIO_SX126X)
-    if (g_suspended || !g_radio) return false;
+    if (g_suspended || !g_radio || !g_radio_ready) return false;
     int16_t st = g_radio->standby();
     if (st != RADIOLIB_ERR_NONE) return false;
     st = g_radio->setSpreadingFactor(sf);
@@ -156,12 +172,34 @@ void radio_resume() {
 }
 
 // ---- rf_task：DIO1 中断 -> 读包 -> 投 q_rf_rx ----
+
+#define RADIO_RETRY_MS 10000
+
+// 射频初始化失败后的周期重试（不触发 watchdog_rf_fault，避免"累计 3 次整机重启"被重试放大）
+static void radio_retry_tick() {
+    if (g_radio_ready || !g_radio || g_suspended) return;
+    static uint32_t last_ms = 0;
+    uint32_t now = millis();
+    if (now - last_ms < RADIO_RETRY_MS) return;
+    last_ms = now;
+
+    int16_t st = g_radio->begin(g_init_freq, g_init_bw, g_init_sf, g_init_cr, g_init_sync, g_init_pwr, 8, 0.0f);
+    if (st == RADIOLIB_ERR_NONE) {
+        attachInterrupt(digitalPinToInterrupt(PIN_LORA_DIO1), radio_isr, RISING);
+        g_radio_ready = true;
+        Serial.println("[radio] 初始化重试成功，射频已恢复");
+    } else {
+        Serial.printf("[radio] 初始化重试失败（%d），%dms 后再试\n", (int)st, RADIO_RETRY_MS);
+    }
+}
+
 static void rf_task_func(void* arg) {
     (void)arg;
     watchdog_register_current();
     radio_startReceive();
     for (;;) {
         watchdog_feed();   // 每轮先喂狗：无论收包还是超时都要喂
+        radio_retry_tick();   // 射频未就绪时无真包，这里每轮尝试恢复
         // 带 1s 超时等 DIO1 中断：超时也醒来喂狗，避免任务被 WDT 判定卡死
         if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000)) == 0) {
             continue;   // 超时（无包）：不读包，直接进入下一轮

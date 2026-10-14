@@ -42,7 +42,7 @@
 2. `power_usb_present()`（内部做 USB 插拔检测并发 EV_USB_PLUG/UNPLUG）
 3. 失联判定：`millis() - mesh_last_rx_ms() > failsafe_s*1000` → 置 EV_LINK_LOST；恢复 → EV_LINK_RESTORED（边沿触发）
 4. 事件分发：读事件位 `(USB_PLUG|USB_UNPLUG|LINK_LOST|LINK_RESTORED)` → `failsafe_on_event()` → 清位
-5. LED：颜色=角色，节奏=`failsafe_link_lost()?LOST:OK`
+5. LED：颜色=角色，节奏=`failsafe_link_lost()?LOST:OK`；**射频未就绪（`!radio_is_ready()`）时整灯红**（`LED_HEALTH_FAULT`，覆盖角色色，P0-4）
 
 ### 关键点
 - 事件消费统一收敛在 stats_task（1s 轮询），failsafe_policy 无独立任务，靠这里喂事件

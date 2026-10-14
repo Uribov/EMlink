@@ -28,6 +28,13 @@ static uint8_t g_my_ttl = FRAME_DEF_TTL;
 static uint16_t g_seq = 0;
 static portMUX_TYPE g_seq_mux = portMUX_INITIALIZER_UNLOCKED;   // 跨核保护 g_seq
 
+// ---- 发送序号历史环（撞号检测用）----
+// 记录本机最近发出的 seq；收到"自称本机 node_id"但 seq 不在此环里的帧 → 判定撞号。
+#define MESH_SEQ_HISTORY 32
+static uint16_t g_my_seq_hist[MESH_SEQ_HISTORY];
+static uint8_t  g_my_seq_idx;
+static uint32_t g_id_conflict;
+
 static TaskHandle_t g_mesh_task = nullptr;
 static mesh_rx_cb_t g_rx_cb = nullptr;
 
@@ -99,6 +106,10 @@ static bool dedup_check(uint8_t src_id, uint16_t seq) {
 
 void mesh_init() {
     memset(g_dedup, 0, sizeof(g_dedup));
+    // 序号历史环归零（0xFFFF = 空槽）；撞号计数清零
+    for (int i = 0; i < MESH_SEQ_HISTORY; i++) g_my_seq_hist[i] = 0xFFFF;
+    g_my_seq_idx  = 0;
+    g_id_conflict = 0;
     cfg_t c;
     if (nvs_cfg_load(&c)) {
         if (c.node_id != 0) g_my_node_id = c.node_id;
@@ -124,8 +135,22 @@ bool mesh_ingress(const frame_t* f) {
 uint16_t mesh_next_seq() {
     portENTER_CRITICAL(&g_seq_mux);
     uint16_t s = g_seq++;
+    // 写入历史环（保持唯一 seq 源不变，仅记录用于撞号判定）
+    g_my_seq_hist[g_my_seq_idx] = s;
+    g_my_seq_idx = (uint8_t)((g_my_seq_idx + 1) % MESH_SEQ_HISTORY);
     portEXIT_CRITICAL(&g_seq_mux);
     return s;
+}
+
+// seq 是否在本机最近发出的序号里（跨核查历史环）
+static bool seq_is_mine(uint16_t s) {
+    bool found = false;
+    portENTER_CRITICAL(&g_seq_mux);
+    for (uint8_t i = 0; i < MESH_SEQ_HISTORY; i++) {
+        if (g_my_seq_hist[i] == s) { found = true; break; }
+    }
+    portEXIT_CRITICAL(&g_seq_mux);
+    return found;
 }
 
 // 本机发起发送：决定 relay_id（单播查下一跳，未知回退广播）
@@ -313,6 +338,7 @@ uint32_t mesh_drop_dup_count() { return g_drop_dup; }
 uint32_t mesh_drop_crc_count() { return g_drop_crc; }
 uint32_t mesh_rx_count()       { return g_rx; }
 uint32_t mesh_last_rx_ms()     { return g_last_rx_ms; }
+uint32_t mesh_id_conflict_count() { return g_id_conflict; }
 
 // ---- mesh_task：收帧 -> 解码 -> ACK/去重/TTL -> 投递/转发 ----
 static void mesh_task_func(void* arg) {
@@ -334,6 +360,12 @@ static void mesh_task_func(void* arg) {
         }
         g_rx++;
         g_last_rx_ms = millis();
+
+        // 撞号检测：收到“自称本机 node_id”的帧，但 seq 不在本机最近 32 个已发序号里
+        // → 极有可能是另一台节点用了同一个 node_id（本机自己中继回来的帧会在历史里，不计）
+        if (f.src_id == g_my_node_id && !seq_is_mine(f.seq)) {
+            g_id_conflict++;
+        }
 
         // ACK 帧：通知 mac + 匹配 ping 等待
         if (f.type == FRAME_ACK) {

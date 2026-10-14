@@ -33,6 +33,7 @@ void cli_help() {
               "  get [键]             读配置（无键打印全部）\r\n"
               "  save                 保存\r\n"
               "  reset                重启\r\n"
+              "  factory              恢复出厂默认（清 role/密钥/参数）\r\n"
               "  status               看状态\r\n"
               "  stats                看统计\r\n"
               "  crypto <32hex>|off   设/关加密密钥（空=看状态）\r\n"
@@ -78,7 +79,7 @@ void cli_handle_line(const char* line) {
         if (n >= 3 && nvs_cfg_set(arg1, arg2)) {
             cli_print("已设置（save 后生效）\r\n");
         } else {
-            cli_print("用法：set <键> <值>；键名见 get\r\n");
+            cli_print("设置失败：键名未知或值超出范围（用 get 查看当前值）\r\n");
         }
     } else if (strcmp(cmd, "get") == 0) {
         if (n >= 2) {
@@ -100,11 +101,22 @@ void cli_handle_line(const char* line) {
         cli_print("重启中...\r\n");
         vTaskDelay(pdMS_TO_TICKS(100));
         esp_restart();
+    } else if (strcmp(cmd, "factory") == 0) {
+        cfg_t c;
+        nvs_cfg_factory(&c);
+        if (nvs_cfg_save(&c)) cli_print("已恢复出厂默认（role 已清空、密钥已清除）——重启后进入配置模式\r\n");
+        else                  cli_print("恢复失败：NVS 写入错误\r\n");
     } else if (strcmp(cmd, "status") == 0) {
         char val[64];
+        char line[128];
         nvs_cfg_get("role", val, sizeof(val));
-        char line[96];
         snprintf(line, sizeof(line), "role=%s\r\n", val);
+        cli_print(line);
+        nvs_cfg_get("node_id", val, sizeof(val));
+        snprintf(line, sizeof(line), "node_id=%s  撞号冲突=%u\r\n", val, (unsigned)mesh_id_conflict_count());
+        cli_print(line);
+        snprintf(line, sizeof(line), "RF: %s\r\n",
+                 radio_is_ready() ? "就绪" : "初始化失败（每 10s 重试，LED 红灯）");
         cli_print(line);
     } else if (strcmp(cmd, "stats") == 0) {
         stats_t s;

@@ -49,5 +49,8 @@ uint32_t mesh_drop_crc_count();
 uint32_t mesh_rx_count();
 uint32_t mesh_last_rx_ms();   // 最后收帧时间 ms（失联判定用）
 
+// 撞号冲突计数（收到"自称本机 node_id"且 seq 不在本机已发序号里的陌生帧）
+uint32_t mesh_id_conflict_count();
+
 // 启动 mesh 任务（内部 xTaskCreate mesh_task_func，任务函数为模块内 static）
 void mesh_start(void);

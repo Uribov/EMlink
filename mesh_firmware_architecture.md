@@ -332,11 +332,11 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `role` | 未设→强制进 CLI | `air` / `gcs` / `relay` |
-| `node_id` | 自动分配 | 节点地址 1–254 |
+| `node_id` | 自动分配 | 节点地址 1–254（首次上电从芯片 MAC 派生并落盘，P0-4） |
 | `sysid` | AIR=飞控号，GCS=255 | 系统标识 |
-| `freq` | 915.0 | 工作频率 MHz |
+| `freq` | 915.0 | 工作频率 MHz（校验范围取 `radios/*.h` 硬件能力宏：E220-900M22S 为 862–930） |
 | `sf` / `bw` / `cr` | 7 / 125 / 5 | 扩频因子/带宽/编码率（cr=5 即 4/5，RadioLib 约定） |
-| `power` | 20 | dBm（默认留余量） |
+| `power` | 20 | dBm（校验范围 -9–22，默认留余量） |
 | `syncword` | 私有 | 组网暗号 |
 | `uart_baud` | 115200 | 飞控串口波特率 |
 | `ttl` | 5 | 最大跳数 |
@@ -354,7 +354,7 @@ CLI（CDC1）常用命令：
 
 ```
 role gcs|air|relay      set <键> <值>      get
-save                    reset              status
+save                    reset              status      factory
 stats                   crypto <32hex>|off wifi [off]
 scan                    ping <node_id>     cfg <键> <值>
 mavlink monitor on      （旁路观察 MAVLink，预留）

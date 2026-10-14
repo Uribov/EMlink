@@ -20,3 +20,9 @@
 #define PIN_LORA_NRST   12    // 复位 active-low，E220 脚 15
 #define PIN_LORA_RXEN   1     // 收使能 active-high，E220 脚 6
 #define PIN_LORA_TXEN   2     // 发使能 active-high，E220 脚 7
+
+// ---- 硬件能力（nvs_cfg 集中校验用；换射频模块时同步改）----
+#define RADIO_FREQ_MIN_MHZ   862.0f   // E220-900M22S 频段下限
+#define RADIO_FREQ_MAX_MHZ   930.0f   // 频段上限
+#define RADIO_PWR_MIN_DBM    (-9)     // SX1268 输出功率范围
+#define RADIO_PWR_MAX_DBM    22

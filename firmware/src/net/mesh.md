@@ -38,6 +38,7 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 - `g_seq` + `g_seq_mux`：发送序号 + portMUX 锁（**全系统唯一 seq 源**，见下）
 - `g_rx_cb`：收包回调（main.cpp 设，接 mav_router / frag / addr_map）
 - 统计：`g_fwd` / `g_drop_ttl` / `g_drop_dup` / `g_drop_crc` / `g_rx` / `g_last_rx_ms`
+- 撞号检测（P0-4）：`g_my_seq_hist[32]`（本机最近发出的 seq 环，`mesh_next_seq` 内写入）+ `g_id_conflict` 计数
 
 ### 序号分配（mesh_next_seq，跨核原子）
 - `mesh_next_seq()` 用 portMUX 保护 `g_seq++`，是**全系统唯一 seq 源**
@@ -45,6 +46,7 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 
 ### mesh_task 收帧流程（按序）
 1. `frame_decode`（CRC 失败 → drop_crc）
+1b. 撞号检测（P0-4）：`src_id == 本机 && !seq_is_mine(seq)`（陌生帧自称本机号）→ `g_id_conflict++`
 2. ACK 帧 → `mac_on_ack_rx` + 匹配 ping 等待（`g_ping_wait_seq`），continue
 3. 去重 `mesh_ingress`（命中 → drop_dup）
 4. BEACON 帧 → `route_learn` + `route_update_rssi` + `adr_on_beacon()`，continue

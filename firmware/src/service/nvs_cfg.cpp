@@ -3,6 +3,8 @@
 // 依赖 Preferences；约定见架构 §9。
 // ============================================================
 #include "nvs_cfg.h"
+#include "../pinmap.h"      // 硬件能力宏（RADIO_FREQ_* / RADIO_PWR_*）
+#include <esp_mac.h>        // esp_read_mac（node_id 自动分配）
 #include <string.h>
 #include <stdlib.h>
 
@@ -112,8 +114,105 @@ static const char* role_to_str(uint8_t r) {
     }
 }
 
+// ---- 集中校验 ----
+
+// 字符串 -> 整数，必须整个串都是数字（endptr 要走到串尾，拒绝 "12abc"）
+static bool parse_long(const char* s, long* out) {
+    if (!s || !*s) return false;
+    char* end = nullptr;
+    long v = strtol(s, &end, 10);
+    if (end == s || *end != '\0') return false;
+    *out = v;
+    return true;
+}
+
+// 字符串 -> 浮点，同样校验尾部
+static bool parse_double(const char* s, double* out) {
+    if (!s || !*s) return false;
+    char* end = nullptr;
+    double v = strtod(s, &end);
+    if (end == s || *end != '\0') return false;
+    *out = v;
+    return true;
+}
+
+// 取值范围校验：与 nvs_cfg 支持的全部键一一对应，未知键一律拒绝
+bool nvs_cfg_value_ok(const char* key, const char* val) {
+    if (!key || !val) return false;
+
+    if (strcmp(key, "role") == 0) {
+        return strcmp(val, "air") == 0 || strcmp(val, "gcs") == 0 || strcmp(val, "relay") == 0;
+    }
+
+    long l;
+    double d;
+
+    if (strcmp(key, "node_id") == 0) {
+        return parse_long(val, &l) && l >= 1 && l <= 254;
+    }
+    if (strcmp(key, "sysid") == 0) {
+        return parse_long(val, &l) && l >= 0 && l <= 255;
+    }
+    if (strcmp(key, "freq") == 0) {
+        return parse_double(val, &d) && d >= RADIO_FREQ_MIN_MHZ && d <= RADIO_FREQ_MAX_MHZ;
+    }
+    if (strcmp(key, "sf") == 0) {
+        return parse_long(val, &l) && l >= 7 && l <= 11;
+    }
+    if (strcmp(key, "bw") == 0) {
+        return parse_long(val, &l) && (l == 125 || l == 250 || l == 500);
+    }
+    if (strcmp(key, "cr") == 0) {
+        return parse_long(val, &l) && l >= 5 && l <= 8;
+    }
+    if (strcmp(key, "power") == 0) {
+        return parse_long(val, &l) && l >= RADIO_PWR_MIN_DBM && l <= RADIO_PWR_MAX_DBM;
+    }
+    if (strcmp(key, "syncword") == 0) {
+        return parse_long(val, &l) && l >= 0 && l <= 65535;
+    }
+    if (strcmp(key, "uart_baud") == 0) {
+        static const long BAUD[] = {9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600};
+        if (!parse_long(val, &l)) return false;
+        for (size_t i = 0; i < sizeof(BAUD) / sizeof(BAUD[0]); i++) {
+            if (l == BAUD[i]) return true;
+        }
+        return false;
+    }
+    if (strcmp(key, "ttl") == 0) {
+        return parse_long(val, &l) && l >= 1 && l <= 10;
+    }
+    if (strcmp(key, "ack_timeout_ms") == 0) {
+        return parse_long(val, &l) && l >= 50 && l <= 10000;
+    }
+    if (strcmp(key, "retries") == 0) {
+        return parse_long(val, &l) && l >= 0 && l <= 10;
+    }
+    if (strcmp(key, "beacon_s") == 0) {
+        return parse_long(val, &l) && l >= 1 && l <= 60;
+    }
+    if (strcmp(key, "failsafe_s") == 0) {
+        return parse_long(val, &l) && l >= 1 && l <= 60;
+    }
+    if (strcmp(key, "name") == 0) {
+        size_t n = strlen(val);
+        return n >= 1 && n <= 15;
+    }
+    return false;   // 未知键一律拒绝
+}
+
+// 从芯片 MAC 派生 1..254 节点号：同板稳定、不同板大概率不同，避免全网默认 1 号撞号
+uint8_t nvs_cfg_assign_node_id(void) {
+    uint8_t mac[6] = {0};
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    return (uint8_t)(1 + ((mac[3] ^ mac[4] ^ mac[5]) % 254));   // 1..254
+}
+
 bool nvs_cfg_set(const char* key, const char* val) {
     if (!key || !val) return false;
+    // 集中校验：任何入口（CLI / 远程 FRAME_CFG / 网页）都不准把非法值写进 NVS，
+    // 否则重启后射频可能起不来（如 freq=0、sf=99、power=30）。
+    if (!nvs_cfg_value_ok(key, val)) return false;
     Preferences p;
     if (!p.begin(NVS_NS, false)) return false;
     bool ok = true;

@@ -115,6 +115,7 @@ static void stats_task_func(void* arg) {
                         (role == ROLE_GCS)   ? LED_ROLE_GCS :
                         (role == ROLE_RELAY) ? LED_ROLE_RELAY : LED_ROLE_UNSET;
         led_health_t lh = failsafe_link_lost() ? LED_HEALTH_LOST : LED_HEALTH_OK;
+        if (!radio_is_ready()) lh = LED_HEALTH_FAULT;   // 射频未就绪：整灯红（覆盖角色色）
         stats_update_led(lr, lh);
 
         vTaskDelay(pdMS_TO_TICKS(1000));

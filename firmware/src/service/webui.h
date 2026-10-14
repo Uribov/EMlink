@@ -38,6 +38,7 @@ static const char WUI_HEAD[] PROGMEM =
 ".st{display:inline-flex;align-items:center;gap:6px}"
 ".st i{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none}"
 ".st.off i{background:var(--dim)}"
+".st.bad i{background:var(--err)}"
 "section{border-top:1px solid var(--line);padding-top:20px;margin-top:28px}"
 "h2{margin:0 0 18px;font-size:10px;font-weight:600;letter-spacing:.16em;"
 "text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:10px}"
@@ -132,7 +133,14 @@ static const char WUI_OTA[] PROGMEM =
 "<button class=\"btn primary\" type=\"submit\">上传刷写</button></form>"
 "<div class=\"note\">刷写成功后自动重启并切换到新分区</div></section>";
 
-// ---- 段 6：维护模式 + 页脚 + 收尾 JS（含密钥格式校验）----
+// ---- 段 6：恢复出厂区（危险操作，放页尾区）----
+static const char WUI_FACTORY[] PROGMEM =
+"<section><h2>恢复出厂</h2>"
+"<form action=\"/factory\" method=\"post\">"
+"<button class=\"btn danger\" type=\"submit\">恢复出厂默认</button></form>"
+"<div class=\"note\">清空 role / 密钥 / 全部参数，重启后需重新配置</div></section>";
+
+// ---- 段 7：维护模式 + 页脚 + 收尾 JS（含密钥格式校验）----
 static const char WUI_TAIL[] PROGMEM =
 "<section><h2>维护模式</h2>"
 "<form action=\"/exit\" method=\"get\">"
@@ -159,7 +167,7 @@ static const char WUI_TAIL[] PROGMEM =
 "})();"
 "</script></body></html>";
 
-// ---- 段 7：回执页（/set、/crypto、/exit、/update 的结果页）----
+// ---- 段 8：回执页（/set、/crypto、/exit、/update 的结果页）----
 // 结构：WUI_HEAD + WUI_SUB_OPEN + 状态行 + WUI_SUB_END + WUI_DONE_A + 提示 + WUI_DONE_B
 static const char WUI_DONE_A[] PROGMEM = "<section><h2>操作结果</h2>";
 

@@ -21,7 +21,7 @@
 | SSID | `EMlink-<node_id>`（可用 `wifi_ssid` 覆盖） |
 | IP | 192.168.4.1 |
 | 密码 | 默认无密码（`wifi_pass` 可设） |
-| 网页功能 | 改参数 / 设密钥 / 刷固件(Update.h) / 退出维护模式 |
+| 网页功能 | 改参数 / 设密钥 / 刷固件(Update.h) / 恢复出厂 / 退出维护模式 |
 | 网页风格 | 学 ELRS：深色底、大标题、纯黑白灰、1px 发丝线、零圆角、等边三角网格标记 |
 | 触发 | CLI `wifi`；退出 `wifi off` 或网页「退出」按钮 |
 
@@ -65,24 +65,26 @@
 ### 路由表（WebServer）
 | 路径 | 方法 | 作用 |
 |---|---|---|
-| `/` | GET | 主页：射频参数 + 加密密钥 + 固件升级 + 维护模式 四块 |
-| `/set` | GET | 读 freq/sf/bw/cr/power 写 NVS（**先白名单校验，有非法值整表拒写**） |
+| `/` | GET | 主页：射频参数 + 加密密钥 + 固件升级 + 恢复出厂 + 维护模式 五块 |
+| `/set` | GET | 读 freq/sf/bw/cr/power 写 NVS（**经 `nvs_cfg_value_ok` 集中校验，有非法值整表拒写**，P0-4） |
 | `/crypto` | GET | `?key=<32hex>` 设密钥；`?off=1` 关加密 |
+| `/factory` | POST | 恢复出厂默认（`nvs_cfg_factory` + 保存），页面按钮触发（P0-4） |
 | `/update` | POST | multipart 上传 .bin；完成回调 `handle_update_done` 兜底失败 |
 | `/exit` | GET | 退出维护模式（`ota_stop`） |
 
 ### 页面资源（webui.h）
 独立成文件的原因：整页 HTML+CSS 约 9KB，塞在 `ota.cpp` 里会把业务逻辑冲掉；独立后改版只动一个文件。
 
-**10 个 `static const char ... PROGMEM` 段**，由 `ota.cpp` 按固定顺序拼装（动态值插在段与段之间）：
+**11 个 `static const char ... PROGMEM` 段**，由 `ota.cpp` 按固定顺序拼装（动态值插在段与段之间）：
 
 | 段 | 内容 |
 |---|---|
 | `WUI_HEAD` | `<!DOCTYPE>` + 全部 CSS + 几何标记 SVG + 大标题（`<header>` 留给调用方闭合） |
-| `WUI_SUB_OPEN` / `WUI_SUB_END` | 状态行（节点/角色/加密）的壳，中间插动态值 |
+| `WUI_SUB_OPEN` / `WUI_SUB_END` | 状态行（节点/角色/加密[/撞号冲突]）的壳，中间插动态值 |
 | `WUI_RADIO_A` / `WUI_RADIO_B` | 射频参数区的壳，中间插 5 个动态字段 |
 | `WUI_CRYPTO` | 加密密钥区（整段静态） |
 | `WUI_OTA` | 固件升级区 |
+| `WUI_FACTORY` | 恢复出厂区（红色危险按钮，P0-4 新增） |
 | `WUI_TAIL` | 维护模式 + 页脚 + 收尾 JS |
 | `WUI_DONE_A` / `WUI_DONE_B` | 回执页的壳，中间插一句结果提示 |
 
@@ -104,7 +106,7 @@
 
 后端（`handle_crypto`）：同样先去掉空白，再交给 `crypto_set_key_hex()`；失败同样回「请输入正确的格式」。判定标准与 `crypto.cpp` **完全一致：恰好 32 个 hex 字符**（`strlen(hex) != CRYPTO_KEY_LEN * 2` 即拒）。手机浏览器关掉 JS 也拦得住。
 
-射频参数（`handle_set`）同样白名单校验：`freq 400–1000`、`sf 7–11`、`bw ∈ {125,250,500}`、`cr 5–8`、`power -9–30`。原本只靠 `<select>` 限制，构造 URL 就能塞进 `freq=0` 把射频写死；现在**有一个非法值就整表拒绝**，不留半套参数进 NVS。
+射频参数（`handle_set`）改为走 `nvs_cfg` 的**集中校验**（P0-4）：`freq 862–930`（按 `radios/*.h` 硬件能力宏）、`sf 7–11`、`bw ∈ {125,250,500}`、`cr 5–8`、`power -9–22`——与 CLI `set`、远程 `cfg` 完全同一套规则。**有一个非法值就整表拒绝**，不留半套参数进 NVS。
 
 ### 刷固件（标准 Update.h 流程）
 - `UPLOAD_FILE_START` → `Update.begin(UPDATE_SIZE_UNKNOWN)`

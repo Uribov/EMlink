@@ -39,6 +39,12 @@ bool nvs_cfg_load(cfg_t* out);
 bool nvs_cfg_save(const cfg_t* in);
 // 恢复出厂默认
 void nvs_cfg_factory(cfg_t* out);
+// 取值范围校验：CLI / 远程 FRAME_CFG / 网页共用同一套（nvs_cfg_set 内部先调它）
+bool nvs_cfg_value_ok(const char* key, const char* val);
+
+// 从芯片 MAC 派生 1..254 的节点号（首次上电用；同板稳定，不同板大概率不同）
+uint8_t nvs_cfg_assign_node_id(void);
+
 // 单项读写（CLI 的 set/get 用）
 bool nvs_cfg_set(const char* key, const char* val);
 bool nvs_cfg_get(const char* key, char* val, size_t len);
