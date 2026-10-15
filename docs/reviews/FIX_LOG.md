@@ -1,6 +1,6 @@
 # EMlink 修复对照表（FIX LOG）
 
-> 审查基线：`CODE_REVIEW_2026-10-14.md`（原样保留，不修改）。工作流与目录说明见 `README.md`；每项的任务书在 `briefs/`。
+> 审查基线：`CODE_REVIEW_2026-10-14.md`（原样保留，不修改）。工作流与目录说明见 `README.md`；进行中的任务书在 `briefs/`、**已完成的在 `briefs/archive/`**。
 
 ## M0 —— 上板前阻断项（已完成）
 

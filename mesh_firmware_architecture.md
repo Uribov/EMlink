@@ -499,7 +499,7 @@ mavlink monitor on      （旁路观察 MAVLink，预留）
 ### 14.3 硬件扩展要守的约定（写新板/新射频前必读）
 
 1. **核绑定别拍脑袋**：单核芯片（C3/S2）上，§3.1 的核 0/核 1 分配要整体重估——射频收发与交互不能真并行，需按实测重排优先级。
-2. **USB 实现因芯片而异**：S3 是原生 USB-OTG（双 CDC），经典 ESP32/C3 是外挂串口芯片或 UART，`usb_cdc` 模块要按芯片宏分叉。
+2. **USB 实现因芯片而异**：S3 是原生 USB-OTG，但**双 CDC 需要 TinyUSB 复合描述符**（本工程未配，只有单 CDC）；经典 ESP32/C3 是外挂串口芯片或 UART。`usb_cdc` 模块目前是「**单口字节分流**」（`0xFD/0xFE` 按 MAVLink 整帧收，其余当 CLI 文本，见 P1-6），换芯片时这套分流逻辑要跟着核。
 3. **射频开关电平**：不同射频模块的 RXEN/TXEN 电平（active-high/low）可能相反，务必量电平回填，别照抄。
 4. **频段合规**：433MHz / 915MHz 各地政策不同，出货前核当地频谱（延续 §12 第 1 条）。
 
@@ -509,4 +509,4 @@ mavlink monitor on      （旁路观察 MAVLink，预留）
 - **主动路由表**：节点 >8 时上 `FRAME_ROUTE` 主动路由（§4.5 已留位）。
 - **真随机数源 / 密钥轮换**：crypto 现用静态密钥，将来可加开机协商、定期轮换。
 - **mavlink monitor**：CLI 旁路观察 MAVLink（调试用，已留命令位）。
-- **中断驱动 CAD**：LBT 的 CAD 现为状态驱动轮询（P0-3 已修），中断驱动方案（复用 DIO1）见 `firmware/src/drivers/radio-update.md`。
+- **中断驱动 CAD**：LBT 的 CAD 现为状态驱动轮询（P0-3 已修），中断驱动方案（复用 DIO1）见 `docs/plans/radio-lbt-interrupt-plan.md`。

@@ -33,7 +33,7 @@
 ## 当前已有方案
 | 方案名 | 板 | 射频 | 驱动 |
 |---|---|---|---|
-| esp32s3-supermini-e220-900m22s | ESP32-S3 SuperMini | E220-900M22S (LLCC68) | RadioLib SX1268 |
+| esp32s3-supermini-e220-900m22s | ESP32-S3 SuperMini | E220-900M22S（LLCC68 芯片） | RadioLib **`SX1262` 类**（型号校验要求；SF 与带宽须配对：BW125→SF≤9） |
 
 ## 驱动兼容
 RadioLib 已统一支持 SX126x（含 LLCC68）、SX127x、SX128x、RF69 等，加新射频优先复用 RadioLib。

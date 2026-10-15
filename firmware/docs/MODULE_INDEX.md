@@ -9,7 +9,7 @@
 | drivers | radio | 射频收发/CAD/复位（抽象接口，SX126x 等按宏实现） |
 | drivers | airtime | LoRa 空中时间计算（Semtech 公式，纯逻辑，P1-2） |
 | drivers | uart_fc | 飞控 UART（DMA 环形缓冲） |
-| drivers | usb_cdc | 双 CDC：MAVLink + CLI |
+| drivers | usb_cdc | **单口分流**：一个 USB 虚拟串口同时跑 MAVLink（`0xFD/0xFE` 整帧）与 CLI（文本），P1-6 |
 | drivers | power_detect | USB 插入检测 |
 | link | frame_codec | 帧编解码 + CRC（纯逻辑） |
 | link | mac | LBT + ACK 重传 + 发送准入 |

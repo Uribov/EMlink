@@ -1,10 +1,11 @@
-# cli —— USB CDC1 命令行
+# cli —— USB 命令行（单口分流里的文本通道）
 
 ## 职责
 插 USB 弹出的命令行，配置 / 状态 / 调试入口。
 
 ## 依赖
-- `usb_cdc.h`（CDC1 收发）、`nvs_cfg.h`、`crypto.h`、`ota.h`、`stats.h`、`mesh.h`、`route.h`、`radio.h`、`duty.h`（status 报占空比超限计数）、`mav_router.h`（status 报本机 sysid 与撞号次数，P1-7）
+- `usb_cdc.h`（**USB 单口分流**：`usb_cdc` 把非 MAVLink 的字节（不以 `0xFD/0xFE` 开头）当文本喂给 CLI）
+- `nvs_cfg.h`、`crypto.h`、`ota.h`、`stats.h`、`mesh.h`、`route.h`、`radio.h`、`duty.h`（status 报占空比超限计数）、`mav_router.h`（status 报本机 sysid 与撞号次数，P1-7）
 
 ## 命令表（对齐架构 §9）
 ```
@@ -25,7 +26,8 @@ help                  帮助
 ## 关键实现点
 1. 行缓冲 + 回车解析；参数用空白分词
 2. `set` 的取值校验统一由 `nvs_cfg` 的集中校验负责（P0-4），非法键/值报「设置失败：键名未知或值超出范围」
-3. `save` 后发 `EV_CFG_CHANGED`，各模块重载
+3. **SF 与带宽必须配对**（P4，LLCC68 硬约束）：`set sf 10` 在 BW125 下会被拒，失败时 CLI 追加一行提示「BW125→SF≤9、BW250→≤10、BW500→≤11」
+4. `save` 后发 `EV_CFG_CHANGED`，各模块重载
 
 ## 对外接口
 见 `cli.h`。
@@ -36,17 +38,17 @@ help                  帮助
 ## 当前实现架构（供人和子 agent 阅读）
 
 ### 一句话
-插 USB 弹出来的命令行（CDC1），配置/查状态/调试的入口。
+插 USB 弹出来的命令行（**USB 单口分流里的文本通道**），配置/查状态/调试的入口。
 
 ### cli_task（核1 优先级8）
-- 读 `Serial1`（CDC1），行缓冲 + 回车解析，回显字符
-- 循环里逐字符读，凑满一行（`\r`/`\n`）就调 `cli_handle_line`
+- 从 `usb_cdc` 的**文本环形缓冲**逐字符取行（P1-6 前是"读 `Serial1`"，那个假设已推翻：USB 只有一个 CDC、`Serial1` 是未初始化的 UART1）
+- 行缓冲 + 回车解析，回显字符；凑满一行（`\r`/`\n`）就调 `cli_handle_line`
 
 ### 命令表（cli_handle_line 分派）
 | 命令 | 动作 |
 |---|---|
 | `role air\|gcs\|relay` | `nvs_cfg_set("role", ...)` |
-| `set <key> <val>` | `nvs_cfg_set(key, val)` |
+| `set <key> <val>` | `nvs_cfg_set(key, val)`（含 SF×BW 配对校验；失败时若键是 sf/bw 追加配对提示） |
 | `get [key]` | `nvs_cfg_get`（无 key 打印全部） |
 | `save` | 保存 NVS 后发 `EV_CFG_CHANGED` → `main.cpp` 的 `loop()` 轮询到后重载内存镜像并提示「射频/角色类参数需 reset 生效」（P1-12 接线） |
 | `reset` | `esp_restart()` |
@@ -62,7 +64,7 @@ help                  帮助
 | `help` | 帮助 |
 
 ### 依赖
-- `usb_cdc`（CDC1 收发）、`nvs_cfg`（读写）、`crypto`（密钥命令）、`ota`（wifi 命令）、`stats`（stats 命令）、`mesh`（ping/cfg 发帧、本机 node_id、status 认证失败计数 P1-8）、`route`（scan 邻居表）、`radio`（scan 信号）、`duty`（status 占空比计数，P1-2）、`addr_map`（status 表容量计数，P1-9）、`frag`（status 分片槽淘汰计数，P1-9）、`mav_router`（status 本机 sysid + 撞号计数，P1-7）
+- `usb_cdc`（USB 单口文本通道）、`nvs_cfg`（读写）、`crypto`（密钥命令）、`ota`（wifi 命令）、`stats`（stats 命令）、`mesh`（ping/cfg 发帧、本机 node_id、status 认证失败计数 P1-8）、`route`（scan 邻居表）、`radio`（scan 信号）、`duty`（status 占空比计数，P1-2）、`addr_map`（status 表容量计数，P1-9）、`frag`（status 分片槽淘汰计数，P1-9）、`mav_router`（status 本机 sysid + 撞号计数，P1-7）
 
 ### 预留命令（架构 §9 里有、尚未实现）
 `mavlink monitor`（旁路观察）——待后续补

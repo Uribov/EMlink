@@ -241,7 +241,7 @@ EMlink/
 
 | 层 | 模块 |
 |---|---|
-| **驱动层** | `radio`（射频收发）、`uart_fc`（飞控 UART）、`usb_cdc`（双 CDC）、`power_detect`（USB 检测） |
+| **驱动层** | `radio`（射频收发）、`uart_fc`（飞控 UART）、`usb_cdc`（USB 单口分流：MAVLink + CLI）、`power_detect`（USB 检测） |
 | **链路层** | `frame_codec`（组帧/CRC）、`mac`（LBT + ACK 重传）、`duty`（占空比限流）、`adr`（自适应速率） |
 | **网络层** | `mesh`（泛洪/去重/TTL）、`route`（反向路径） |
 | **服务层** | `mav_router`（MAVLink 解析分发）、`frag`（分片重组）、`addr_map`（sysid↔node）、`nvs_cfg`（配置持久化）、`watchdog`（看门狗+射频自救）、`crypto`（AES-128-CCM）、`ota`（WiFi 网页升级） |
@@ -286,11 +286,13 @@ EMlink/
 | 文档 | 内容 |
 |---|---|
 | [`mesh_firmware_architecture.md`](mesh_firmware_architecture.md) | **总架构**：引脚、分层、任务、帧格式、MAC、分片、路由、QoS、NVS/CLI、统计、扩展模块、未来展望 |
-| [`firmware/docs/MODULE_INDEX.md`](firmware/docs/MODULE_INDEX.md) | 模块索引、依赖图、实现顺序、给大模型的提示词模板 |
+| [`firmware/docs/MODULE_INDEX.md`](firmware/docs/MODULE_INDEX.md) | 模块索引、依赖图、实现顺序 |
 | [`firmware/docs/CONCEPTS.md`](firmware/docs/CONCEPTS.md) | 嵌入式基础概念科普（新手向） |
 | [`firmware/docs/HARDWARE_VARIANTS.md`](firmware/docs/HARDWARE_VARIANTS.md) | 如何适配新开发板 / 新射频芯片 |
-| [`firmware/docs/tool.md`](firmware/docs/tool.md) | 开发环境搭建（Windows / Linux） |
-| [`docs/reviews/`](docs/reviews/README.md) | **审查与修复留档**：代码审查日志、修复对照表（条目→提交→验证→遗留）、每个修复项的任务书 |
+| [`firmware/docs/tool.md`](firmware/docs/tool.md) | 开发环境搭建（装环境 / 编译 / 串口权限 / **校园网走 SSH 推送**） |
+| [`docs/references/`](docs/references/LLCC68_E220-900M22S.md) | **平台硬约束档案**：LLCC68 + E220-900M22S 的官方参数、合法组合、驱动匹配规则（含全部出处） |
+| [`tools/README.md`](tools/README.md) | 工程工具：批量烧录脚本、分层依赖体检脚本 |
+| [`docs/reviews/`](docs/reviews/README.md) | **审查与修复留档**：代码审查日志、修复对照表 `FIX_LOG.md`（条目→提交→验证→遗留）、任务书（已完成的在 `briefs/archive/`） |
 | [`docs/BRINGUP.md`](docs/BRINGUP.md) | **开机操作卡**（第一次上板照它走）：备件与接线、串口权限、整片擦除、烧录命令、开机该看什么、`status` 分层怎么读、常见现象对照表、安全红线 |
 | [`todo.md`](todo.md) | **板到货后的验证清单**：开箱第一步（同版本同刷 / 整片擦除）、M0 与 A/B 档逐项复验、验收矩阵、已知限制 |
 | [`ROADMAP.md`](ROADMAP.md) | **项目尺度与待办**：为什么不过度工程化（个人低成本开源项目）、本批已完成、推后到上板之后的事、按触发条件排队的工程化项 |
