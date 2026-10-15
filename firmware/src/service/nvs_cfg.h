@@ -42,6 +42,13 @@ void nvs_cfg_factory(cfg_t* out);
 // 取值范围校验：CLI / 远程 FRAME_CFG / 网页共用同一套（nvs_cfg_set 内部先调它）
 bool nvs_cfg_value_ok(const char* key, const char* val);
 
+// LLCC68 硬约束：SF 与带宽必须配对（BW125→SF≤9、BW250→≤10、BW500→≤11）
+// 返回该带宽允许的最大 SF；带宽不认识时返回 0。
+uint8_t nvs_cfg_sf_max_for_bw(uint8_t bw);
+
+// sf/bw 组合是否合法（bw 不在 125/250/500 时返回 false）
+bool nvs_cfg_pair_ok(uint8_t sf, uint8_t bw);
+
 // 从芯片 MAC 派生 1..254 的节点号（首次上电用；同板稳定，不同板大概率不同）
 uint8_t nvs_cfg_assign_node_id(void);
 

@@ -89,6 +89,9 @@ void cli_handle_line(const char* line) {
             cli_print("已设置（save 后生效）\r\n");
         } else {
             cli_print("设置失败：键名未知或值超出范围（用 get 查看当前值）\r\n");
+            if (strcmp(arg1, "sf") == 0 || strcmp(arg1, "bw") == 0) {
+                cli_print("提示：本机射频 LLCC68 要求 SF 与带宽配对 —— BW125→SF≤9、BW250→≤10、BW500→≤11\r\n");
+            }
         }
     } else if (strcmp(cmd, "get") == 0) {
         if (n >= 2) {

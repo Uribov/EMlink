@@ -52,6 +52,16 @@ bool nvs_cfg_load(cfg_t* out) {
     out->power          = p.getChar("power", 20);
     out->syncword       = p.getUShort("syncword", 0x12);
     out->uart_baud      = p.getUInt("uart_baud", 115200);
+    // 老配置兜底：旧固件可能把非法组合写进 NVS（如 bw=125 & sf=10）。
+    // 只改内存 + 警告，不写回 NVS，避免每次开机都擦写。
+    {
+        uint8_t sf_max = nvs_cfg_sf_max_for_bw(out->bw);
+        if (sf_max != 0 && out->sf > sf_max) {
+            Serial.printf("[cfg] NVS 里的 SF%d 与 BW%dkHz 组合非法（LLCC68 上限 SF%d），已临时降到 SF%d\n",
+                          out->sf, out->bw, sf_max, sf_max);
+            out->sf = sf_max;
+        }
+    }
     out->ttl            = p.getUChar("ttl", 5);
     out->ack_timeout_ms = p.getUInt("ack_timeout_ms", 300);
     out->retries        = p.getUChar("retries", 3);
@@ -69,6 +79,7 @@ bool nvs_cfg_load(cfg_t* out) {
 
 bool nvs_cfg_save(const cfg_t* in) {
     if (!in) return false;
+    if (!nvs_cfg_pair_ok(in->sf, in->bw)) return false;   // LLCC68：SF 与带宽必须配对
     Preferences p;
     if (!p.begin(NVS_NS, false)) return false;
     p.putUChar("role", in->role);
@@ -201,6 +212,21 @@ bool nvs_cfg_value_ok(const char* key, const char* val) {
     return false;   // 未知键一律拒绝
 }
 
+// LLCC68 硬约束：SF 与带宽必须配对（BW125→SF≤9、BW250→≤10、BW500→≤11）
+uint8_t nvs_cfg_sf_max_for_bw(uint8_t bw) {
+    switch (bw) {
+        case 125: return 9;
+        case 250: return 10;
+        case 500: return 11;
+        default:  return 0;   // 不认识的带宽
+    }
+}
+
+bool nvs_cfg_pair_ok(uint8_t sf, uint8_t bw) {
+    uint8_t sf_max = nvs_cfg_sf_max_for_bw(bw);
+    return sf >= 7 && sf <= sf_max;   // sf_max==0 时自然为 false
+}
+
 // 从芯片 MAC 派生 1..254 节点号：同板稳定、不同板大概率不同，避免全网默认 1 号撞号
 uint8_t nvs_cfg_assign_node_id(void) {
     uint8_t mac[6] = {0};
@@ -231,6 +257,14 @@ bool nvs_cfg_set(const char* key, const char* val) {
     Preferences p;
     if (!p.begin(NVS_NS, false)) return false;
     bool ok = true;
+
+    // 跨键配对：sf/bw 分开存两个键，写单键前读另一键的当前值一起判定，
+    // 防止 CLI/远程/网页把 LLCC68 不支持的组合（如 bw=125 & sf=10）写进 NVS。
+    if (strcmp(key, "sf") == 0) {
+        if (!nvs_cfg_pair_ok((uint8_t)atoi(val), p.getUChar("bw", 125))) { p.end(); return false; }
+    } else if (strcmp(key, "bw") == 0) {
+        if (!nvs_cfg_pair_ok(p.getUChar("sf", 7), (uint8_t)atoi(val))) { p.end(); return false; }
+    }
 
     if (strcmp(key, "role") == 0) {
         p.putUChar("role", role_from_str(val));

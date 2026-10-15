@@ -15,7 +15,7 @@
 | node_id | 自动 | 节点地址 1~254 |
 | sysid | AIR=1 GCS=255 | 系统标识（P1-7：NVS 优先，0=按角色默认） |
 | freq | 915.0 | MHz |
-| sf/bw/cr | 7/125/5 | 扩频参数 |
+| sf/bw/cr | 7/125/5 | 扩频参数。**SF 与带宽必须配对**：BW125→SF≤9、BW250→≤10、BW500→≤11（LLCC68 硬约束，见下 §6） |
 | power | 20 | dBm |
 | syncword | 0x12 | 私有同步字 |
 | uart_baud | 115200 | 飞控波特率 |
@@ -37,6 +37,9 @@
 3. **集中校验**（P0-4）：`nvs_cfg_value_ok(key,val)` 是唯一校验入口（CLI / 远程 FRAME_CFG / 网页共用）；`nvs_cfg_set()` 写入前先过它，非法值一律拒绝——防止 `freq=0` / `sf=99` / `power=30` 这类"写进去就失联"的配置。范围：role=air/gcs/relay、node_id 1–254、freq 862–930（取 `radios/*.h` 的硬件能力宏）、sf 7–11、bw {125,250,500}、cr 5–8、power -9–22、ttl 1–10、ack_timeout_ms 50–10000、retries 0–10、beacon_s / failsafe_s 1–60、name ≤15、uart_baud 白名单；字符串→数字用 strtol/strtod 并校验尾部（`12abc` 判非法）
 4. **node_id 自动分配**（P0-4）：NVS 里为 0（未分配）时，`nvs_cfg_assign_node_id()` 从芯片 MAC 派生 1–254，`main.cpp` 首次上电落盘——避免全网默认 1 号撞号
 5. **逐键存取**：`Preferences` 按 key 存，不是整块 blob —— 新增键（如 `enc_epoch`）对老设备天然向后兼容（`getUChar(key, 默认值)`）
+6. **SF 与带宽必须配对**（本板芯片 LLCC68 硬约束，2026-10-15 加）：`nvs_cfg_sf_max_for_bw(bw)` 给出该带宽允许的最大 SF（125→9 / 250→10 / 500→11，其余→0），`nvs_cfg_pair_ok(sf,bw)` = `7 ≤ sf ≤ 上限`。**三处咽喉全拦**：① `nvs_cfg_set()`（CLI 单键写：读另一键的当前值一起判定）② `nvs_cfg_save()`（整表写：网页 `/set`、恢复出厂、远程 FRAME_CFG）③ `nvs_cfg_load()` 对**老配置**兜底 —— 非法组合只把内存里的 SF 降档 + `Serial` 告警，**不写回 NVS**（避免每次开机都擦写）。网页与 CLI 都给了明确报错文案。
+   - **注意（已知限制）**：单键路径不能原子地同时改 sf+bw。要从 `7/125` 换到 `10/250`，得**先** `set bw 250`、**再** `set sf 10`（反过来会被当前带宽拦下）；整表写（网页 `/set`）没有这个限制。
+   - 依据：`docs/references/LLCC68_E220-900M22S.md` §2（亿佰特规格书 + Semtech 手册 + Zephyr binding 三处一致）
 
 ## 对外接口
 见 `nvs_cfg.h`。

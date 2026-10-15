@@ -34,7 +34,7 @@
 - **反向路径学习**：节点记住"到某节点该从哪个邻居转发"，单播减少全网广播。
 - **大包分片重组**：MAVLink 长消息（如航点、参数）自动分片，收端重组，支持缺件 NACK 补发。
 - **帧载荷加密**：AES-128-CCM（mbedTLS），防止链路被篡改/伪造；中继只转发密文，无需持密钥。
-- **自适应速率（ADR）**：以 BEACON 为节拍在 SF10/SF7 间切换，兼顾远距离与速率。
+- **自适应速率（ADR）**：以 BEACON 为节拍在 SF9/SF7 间切换，兼顾远距离与速率。
 - **OTA 升级 + WiFi 网页管理**：CLI 一键进维护模式，手机/电脑连 WiFi 打开网页即可改参数、设密钥、刷固件。
 - **统一固件、三种角色**：同一份固件，角色（AIR / GCS / RELAY）通过配置切换。
 
@@ -45,7 +45,7 @@
 | 组成 | 型号 | 说明 |
 |---|---|---|
 | 主控 | **ESP32-S3 SuperMini** | 双核 240MHz，4MB Flash |
-| 射频 | **E220-900M22S** | LLCC68 / SX1268 同族，SPI 接口，22dBm，915MHz |
+| 射频 | **E220-900M22S** | **LLCC68** 芯片，SPI 接口，22dBm，915MHz（RadioLib 用 `SX1262` 类驱动） |
 | 天线 | 900MHz 天线 | SMA / IPEX |
 | 飞控侧 | Pixhawk 等（任意 MAVLink 飞控） | 接 AIR 节点的 UART |
 | 地面侧 | 电脑 + QGroundControl | 接 GCS 节点的 USB |
@@ -254,7 +254,7 @@ EMlink/
 ## 技术栈与设计
 
 - **平台**：PlatformIO + Arduino framework + FreeRTOS
-- **射频库**：RadioLib 6.6.0（SX1268 驱动 LLCC68）
+- **射频库**：RadioLib 6.6.0（E220-900M22S 是 LLCC68 芯片，用 **`SX1262` 类**驱动；SF 与带宽必须配对：BW125→SF≤9。依据见 `docs/references/LLCC68_E220-900M22S.md`）
 - **双核分工**：
   - **core0**（时间敏感，射频/信道/组网）：`rf_task`、`mac_task`、`mesh_task`
   - **core1**（交互与协议）：`mavlink_task`、`uart_task`、`usb_task`、`cli_task`、`stats_task`、`ota_task`

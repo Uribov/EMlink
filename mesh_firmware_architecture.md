@@ -1,6 +1,6 @@
 # 无人机 915MHz LoRa Mesh 数传 · 最终固件架构
 
-> 硬件：ESP32-S3 SuperMini + E220-900M22S（LLCC68 / SX1268 类 SPI 裸射频模块）
+> 硬件：ESP32-S3 SuperMini + E220-900M22S（**LLCC68** 芯片的 SPI 裸射频模块；RadioLib 用 **`SX1262` 类**驱动 —— 型号校验要求，见 `docs/references/LLCC68_E220-900M22S.md`）
 > 统一硬件、统一固件，角色（AIR / GCS / RELAY）上电由 NVS + USB CLI 配置
 > 平台：PlatformIO + Arduino + FreeRTOS + RadioLib
 > 硬约束：**绝对禁止 Type-C 与 4Pin 排针同时插**（双路 5V 反灌烧板）
@@ -14,7 +14,7 @@
 | 项 | 结论 |
 |---|---|
 | 接口 | **SPI（MISO/MOSI/SCK/NSS）+ 控制脚**，**不是 UART 透传** |
-| 核心芯片 | LLCC68（Semtech，与 SX1268 同族，RadioLib 用 `SX1268` 驱动） |
+| 核心芯片 | **LLCC68**（Semtech，SX1268 的低成本同族版）→ RadioLib 用 **`SX1262` 类**驱动（`begin()` 按"芯片自报型号"校验，见 `docs/references/LLCC68_E220-900M22S.md` §3）。**硬约束：SF 与带宽必须配对 —— BW125→SF≤9、BW250→≤10、BW500→≤11**（§2） |
 | VCC | 1.8~3.7V，本设计 3.3V（AMS1117）✓ |
 | 时钟 | 无 TCXO，晶振版（RadioLib 用默认 XTAL 配置）。已确认可接受：SF7/BW125 对频偏极宽容（容差约 ±25% 带宽 ≈ ±31kHz），视距 + 中继有充足链路余量，无需用 TCXO 换极端灵敏度 |
 | 射频开关 | 外部开关，**RXEN / TXEN 控制，active-high** |
@@ -42,8 +42,10 @@
 ### 0.3 接口层结论（照此写驱动）
 
 ```cpp
-// RadioLib 实例化（LLCC68 == SX1268），引脚宏来自 pinmap.h（radios/e220-900m22s.h）
-SX1268 radio = new Module(PIN_LORA_NSS, PIN_LORA_DIO1, PIN_LORA_NRST, PIN_LORA_BUSY);
+// RadioLib 实例化：先用 Module 包引脚，再用驱动类包装（LLCC68 芯片用 SX1262 类）
+// 引脚宏来自 pinmap.h（radios/e220-900m22s.h）
+Module mod(PIN_LORA_NSS, PIN_LORA_DIO1, PIN_LORA_NRST, PIN_LORA_BUSY);
+SX1262 radio(&mod);
 radio.setRfSwitchPins(PIN_LORA_RXEN, PIN_LORA_TXEN);   // 用 RXEN/TXEN 切收发
 // 禁止调用 setDio2AsRfSwitchCtrl() —— DIO2 已悬空
 radio.begin(freq, bw, sf, cr, syncWord, pwr);
@@ -171,7 +173,7 @@ radio.begin(freq, bw, sf, cr, syncWord, pwr);
 ```
 rtos_comms_init()          # 建队列/事件组（最先，幂等）
 → radio_start()            # 射频底层
-→ adr_init()               # ADR：先停 SF10 等 BEACON
+→ adr_init()               # ADR：先停 SF9 等 BEACON
 → mac_start()              # 信道接入（mac_task 循环里跑 adr_tick）
 → route_init() / addr_map_init() / frag_init()   # 纯内存表清零（P1-12 补接线：此前从未被调用）
 → mesh_start()             # 转发
@@ -267,10 +269,10 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 
 - **LBT（先听后说）**：发前 CAD 侦听（P0-3 修正：状态驱动轮询直到 `CAD_DONE`/`CAD_DETECTED`，超时按 SF/BW 推导）；忙 → 随机退避 5–20ms 重试，最多 3 次；3 次仍忙 → **硬发**（控制指令不可无限憋）。
 - **半双工**：RXEN/TXEN 切收发，发完立刻切回收听。
-- **ACK/重传**：`ack_req=1` 的帧，收方回 ACK；发方超时未收到→重发，最多 3 次，退避 100→300→700ms。**ACK 超时随 SF 自适应**（P1-2）：`max(NVS 值 300ms, ACK 帧(16B) 空中时间 + 50ms)`，SF7≈300ms、SF10≈380ms——ACK 帧自身在 SF10 要 330ms，写死 300ms 必然误判超时。
-- **BEACON**：GCS 每 5s 广播一次（由 adr 模块管，固定 SF10 锚点），节点据此对齐速率表 + 评估邻居链路质量（RSSI/SNR）。
+- **ACK/重传**：`ack_req=1` 的帧，收方回 ACK；发方超时未收到→重发，最多 3 次，退避 100→300→700ms。**ACK 超时随 SF 自适应**（P1-2）：`max(NVS 值 300ms, ACK 帧(16B) 空中时间 + 50ms)` —— SF7≈300ms、SF9≈300ms（16B@SF9 约 165ms，不触发下限）；若将来用 SF10 则要 380ms（ACK 帧自身 330ms，写死 300ms 必然误判超时）。
+- **BEACON**：GCS 每 5s 广播一次（由 adr 模块管，固定 SF9 锚点），节点据此对齐速率表 + 评估邻居链路质量（RSSI/SNR）。
 - **协议版本宣告（T-2，`service/version`）**：BEACON 的 payload 带 **1 字节 `EM_PROTO_VERSION`**；收端比对不一致 → 计数 + 串口告警 + CLI `status` 的「协议」行显示（**只告警不拒绝**，仍照常收发——还要能互相看见，便于现场判断该刷哪一台）。**只能拦"未来"的不一致**（v2↔v3）：v1↔v2 那次 14→15 字节帧头变化，旧固件连帧都解不出、走不到"读 payload 版本号"这一步。**帧格式/封装语义每变一次，`EM_PROTO_VERSION` 必须 +1**。固件版本 `EM_FW_VERSION` 手工维护（自动从 git 生成记在 `ROADMAP.md`）；`ver` 命令查看。
-- **占空比**：每节点每秒空中发射时间上限 10%（100ms/s），超限排队稍等——守法规、让空口。空中时间按 Semtech 公式精确算（`drivers/airtime`，P1-2），**200B@BW125/CR4/5：SF7 = 318ms、SF10 = 1846ms**；单帧就超 100ms 预算时放行并计数（否则会死等），计数可在 CLI `status` 看到。
+- **占空比**：每节点每秒空中发射时间上限 10%（100ms/s），超限排队稍等——守法规、让空口。空中时间按 Semtech 公式精确算（`drivers/airtime`，P1-2），**200B@BW125/CR4/5：SF7 = 318ms、SF9 ≈ 923ms**；单帧就超 100ms 预算时放行并计数（否则会死等），计数可在 CLI `status` 看到。
 - **流量整形（P1-10，`service/ratelimit`）**：发送前先过**按 QoS 的令牌桶**——控制类(QOS2)有保底份额（10% 空口时间），用户类(QOS0/1)拿剩余 90%；计价同样是空中毫秒。**超限直接丢**（`MAC_DROP_RATE`），绝不死等：`mac_send` 与 `adr_tick()` 同任务，死等会把 ADR 时间表一起拖歪。层序：**准入整形（ratelimit）→ 占空比硬上限（duty）→ LBT → 发送**。
 
 ---
@@ -444,8 +446,8 @@ mavlink monitor on      （旁路观察 MAVLink，预留）
 
 ### 13.3 自适应速率（adr）—— ✅ 已实现（BEACON 锚定固定速率表；P1-3 加固）
 - 非真动态自适应（不按 RSSI/SNR 实时调），就是一张固定速率表，靠 GCS 的 BEACON 对齐全网节奏
-- GCS 每 5s 发 BEACON（固定 SF10 锚点）；5s 周期：t=0~1s SF10（慢速保链接）、t=1~4.5s SF7（快速）、t=4.5~5s SF10（guard 窗抵消 BEACON 空中传播延迟）
-- 非 GCS 开机停 SF10 等 BEACON，收到即对齐周期起点；`radio_set_sf`（standby→setSpreadingFactor→startReceive）运行时切 SF
+- GCS 每 5s 发 BEACON（固定 SF9 锚点）；5s 周期：t=0~1s SF9（慢速保链接）、t=1~4.5s SF7（快速）、t=4.5~5s SF9（guard 窗抵消 BEACON 空中传播延迟）
+- 非 GCS 开机停 SF9 等 BEACON，收到即对齐周期起点；`radio_set_sf`（standby→setSpreadingFactor→startReceive）运行时切 SF
 - **P1-3 兜底**：信标 ttl 改为 `MESH_BEACON_TTL`(=2) 可被中继转发一次，但**只有直收（`relay_id==0`）的信标参与对齐**（多跳时延无法补偿）；失去对齐基准 15s（权威信标超时，或"只见多跳信标却始终等不到权威信标"）→ **降级到固定速率兼容模式**并告警，重新收到权威信标即自愈；半周期内出现第二个锚点只计数不选举；对齐点按信标 ToA 做补偿（GCS 的时间戳是"入队"时刻，本机基准是"收完"）
 - 真动态自适应（按邻居 RSSI/SNR 调 SF/BW/功率）+ **多 GCS 主从选举**留后演进
 - 位置：`link/adr`（依赖 radio 的 radio_set_sf/airtime_ms + mesh 的 BEACON + `service/role_state` 判 GCS——D2 前是 `app/role`，属中间层反向依赖应用层，已修）
@@ -459,7 +461,7 @@ mavlink monitor on      （旁路观察 MAVLink，预留）
 
 ## 14. 未来展望（硬件扩展路线）
 
-> 现状：**一套固件 + 一套引脚映射**，跑在 ESP32-S3 SuperMini + E220-900M22S（LLCC68/SX1268）上。
+> 现状：**一套固件 + 一套引脚映射**，跑在 ESP32-S3 SuperMini + E220-900M22S（LLCC68）上。
 > 目标：**一套代码库，适配更多 ESP32 系列芯片/开发板 + 更多射频芯片**，低成本批量造不同硬件时只改配置不改业务逻辑。
 > 具体怎么加新板/新射频的步骤，见 `firmware/docs/HARDWARE_VARIANTS.md`；本节只讲「要往哪个方向扩」。
 
@@ -487,7 +489,7 @@ mavlink monitor on      （旁路观察 MAVLink，预留）
 
 | 射频模块 | 芯片 | RadioLib 驱动 | 频段 |
 |---|---|---|---|
-| E220-900M22S | LLCC68 | SX1268（✅ 已支持） | 915MHz |
+| E220-900M22S | LLCC68 | `SX1262` 类（✅ 已支持；型号校验要求，见 references 档案） | 915MHz |
 | SX1276/SX1278 系列 | SX127x | SX1278 | 915/433MHz |
 | SX1262 系列 | SX1262 | SX1262 | 915MHz |
 | RF69/RFM69 | RF69 | RF69 | 433/915MHz |

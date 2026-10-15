@@ -170,6 +170,10 @@ static void handle_set() {
     if (s.hasArg("power")) { const char* v = s.arg("power").c_str(); if (nvs_cfg_value_ok("power", v)) c.power = (int8_t)atoi(v); else bad = true; }
 
     if (bad) { send_done(s, true, "请输入正确的格式"); return; }
+    if (!nvs_cfg_pair_ok(c.sf, c.bw)) {
+        send_done(s, true, "SF 与带宽不匹配：本机射频芯片 LLCC68 要求 BW125→SF≤9、BW250→≤10、BW500→≤11。");
+        return;
+    }
     if (!nvs_cfg_save(&c)) { send_done(s, true, "写入失败：NVS 保存出错。"); return; }
     send_done(s, false, "参数已保存，重启后生效。");
 }

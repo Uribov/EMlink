@@ -2,7 +2,7 @@
 
 ## 职责
 用「固定时间表 + BEACON 锚点」让全网节点分时切换扩频因子（SF）：
-平时用 SF7 快速传数据，每周期留一段 SF10 慢速窗保链接（抗干扰、传得远，远处弱节点也能跟上）。
+平时用 SF7 快速传数据，每周期留一段 SF9 慢速窗保链接（抗干扰、传得远，远处弱节点也能跟上）。
 
 **不是真动态自适应**（不根据 RSSI/SNR 实时调），就是一张固定速率表，靠 GCS 的 BEACON 把全网节奏对齐。真自适应留后演进。
 
@@ -18,17 +18,20 @@
 ## 速率表（方案定死，5s 保守周期）
 | 相位（5s 周期内） | SF | 用途 |
 |---|---|---|
-| t=0~1s | SF10 | 慢速窗：GCS 发 BEACON（锚点）+ 保链接 |
+| t=0~1s | SF9 | 慢速窗：GCS 发 BEACON（锚点）+ 保链接 |
 | t=1~4.5s | SF7 | 快速窗：传数据 |
-| t=4.5~5s | SF10 | guard 窗：提前回 SF10 等下一个 BEACON |
+| t=4.5~5s | SF9 | guard 窗：提前回 SF9 等下一个 BEACON |
 
 - 周期 5s（`ADR_PERIOD_MS`，用户拍板"保守些"）
-- BEACON 固定 SF10（`ADR_SF_SLOW=10`），数据 SF7（`ADR_SF_FAST=7`）
-- guard 0.5s（`ADR_GUARD_MS`）：BEACON 空中传播 + 处理约 200ms，收方周期起点天然比 GCS 晚，需提前回 SF10 否则每周期都错过 BEACON
+- BEACON 固定 SF9（`ADR_SF_SLOW=9`），数据 SF7（`ADR_SF_FAST=7`）
+  - **为什么是 9 不是 10**：本板芯片 LLCC68 在 125kHz 带宽下**最高只支持 SF9**（SF5-6-7-8-9），
+    SF10@125kHz 是非法组合（亿佰特规格书 / Semtech Table 6-1 脚注 / Zephyr binding 三处一致，
+    见 `docs/references/LLCC68_E220-900M22S.md` §2）。SF7 与 SF9 在 125/250/500kHz 下都合法。
+- guard 0.5s（`ADR_GUARD_MS`）：BEACON 空中传播 + 处理约 200ms，收方周期起点天然比 GCS 晚，需提前回 SF9 否则每周期都错过 BEACON
 
 ## 时序（关键）
-- **GCS**：自己就是锚点。每 5s 切 SF10 → 发 BEACON → 按相位切（0~1s SF10，1~4.5s SF7，4.5~5s SF10）
-- **非 GCS**：开机停在 SF10 等 BEACON。**直收**（`relay_id==0`）的 BEACON 那一刻 = 本机周期起点（`adr_on_beacon` 记 `epoch_ms`，并减掉信标 ToA + 排队延迟做补偿），之后按同一相位表切
+- **GCS**：自己就是锚点。每 5s 切 SF9 → 发 BEACON → 按相位切（0~1s SF9，1~4.5s SF7，4.5~5s SF9）
+- **非 GCS**：开机停在 SF9 等 BEACON。**直收**（`relay_id==0`）的 BEACON 那一刻 = 本机周期起点（`adr_on_beacon` 记 `epoch_ms`，并减掉信标 ToA + 排队延迟做补偿），之后按同一相位表切
 - **多跳信标**（`relay_id!=0`）**不参与对齐**（中继的排队+空中时延无法补偿），只说明"系统在场"
 - 全网靠 BEACON 对齐，SF 切换节奏一致，不会"我 SF7 你说 SF10"
 

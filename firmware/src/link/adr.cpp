@@ -1,8 +1,8 @@
 // ============================================================
 // adr.cpp —— BEACON 锚定固定速率表
 // 依赖 radio.h / mesh.h（发 BEACON）/ role_state.h（判断 GCS）
-// 5s 周期：0~1s SF10（慢速窗），1~5s SF7（快速窗）。
-// GCS 在周期起点发 BEACON（SF10）；非 GCS 停在 SF10 等 BEACON，收到后对齐。
+// 5s 周期：0~1s SF9（慢速窗），1~5s SF7（快速窗）。
+// GCS 在周期起点发 BEACON（SF9）；非 GCS 停在 SF9 等 BEACON，收到后对齐。
 // ============================================================
 #include "adr.h"
 #include "../drivers/radio.h"
@@ -39,7 +39,7 @@ void adr_init() {
     g_last_any_beacon_ms = 0;
     g_first_any_beacon_ms = 0;
     g_anchor_src_id = 0;
-    radio_set_sf(ADR_SF_SLOW);   // 开机先停 SF10，保证能收到第一个 BEACON
+    radio_set_sf(ADR_SF_SLOW);   // 开机先停 SF9，保证能收到第一个 BEACON
 }
 
 // 收到 BEACON：relay_id==0 为本机直收（权威信标，参与对齐）；否则只算"系统在场"
@@ -89,7 +89,7 @@ static uint32_t phase_in_period(uint32_t now) {
 static uint8_t sf_for_phase(uint32_t phase) {
     // t=0~1s 慢速窗（含 BEACON 发收）
     if (phase < ADR_SLOW_MS) return ADR_SF_SLOW;
-    // 周期末尾 guard 窗：提前回 SF10 等下一个 BEACON（抵消空中传播延迟 ~200ms）
+    // 周期末尾 guard 窗：提前回 SF9 等下一个 BEACON（抵消空中传播延迟 ~200ms）
     if (phase >= ADR_PERIOD_MS - ADR_GUARD_MS) return ADR_SF_SLOW;
     // 其余时间快速窗 SF7
     return ADR_SF_FAST;
@@ -117,19 +117,19 @@ void adr_tick() {
     }
 
     if (role == ROLE_GCS) {
-        // GCS：自己就是锚点，5s 一周期，起点发 BEACON（SF10）
+        // GCS：自己就是锚点，5s 一周期，起点发 BEACON（SF9）
         if (now - g_last_beacon_ms >= ADR_PERIOD_MS) {
             g_last_beacon_ms = now;
             g_epoch_ms = now;
             g_has_beacon = true;
 
-            // 切到 SF10 再发 BEACON（保证收方在 SF10 能听到）
+            // 切到 SF9 再发 BEACON（保证收方在 SF9 能听到）
             if (g_sf != ADR_SF_SLOW) {
                 radio_set_sf(ADR_SF_SLOW);
                 g_sf = ADR_SF_SLOW;
             }
             mesh_send_beacon();
-            return;   // 本 tick 就停 SF10，下个 tick 再按相位切
+            return;   // 本 tick 就停 SF9，下个 tick 再按相位切
         }
 
         // 已对齐，按相位切 SF
@@ -142,7 +142,7 @@ void adr_tick() {
             }
         }
     } else {
-        // 非 GCS（AIR/RELAY）：停在 SF10 等 BEACON；收到后按相位切
+        // 非 GCS（AIR/RELAY）：停在 SF9 等 BEACON；收到后按相位切
         if (g_compat) {
             // 兼容模式：固定速率，不切窗（已经失去对齐基准）
             if (g_sf != ADR_COMPAT_SF) { radio_set_sf(ADR_COMPAT_SF); g_sf = ADR_COMPAT_SF; }
@@ -150,7 +150,7 @@ void adr_tick() {
         }
 
         if (!g_has_beacon) {
-            // 还没收到过 BEACON，保持 SF10 傻等
+            // 还没收到过 BEACON，保持 SF9 傻等
             if (g_sf != ADR_SF_SLOW) {
                 radio_set_sf(ADR_SF_SLOW);
                 g_sf = ADR_SF_SLOW;

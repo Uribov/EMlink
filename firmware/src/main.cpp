@@ -86,7 +86,7 @@ void setup() {
         Serial.println("[radio] 初始化失败：LED 红灯，CLI status 可见；rf_task 每 10s 自动重试");
     }
     radio_start();
-    adr_init();          // ADR：先停 SF10 等 BEACON（GCS 会主动发锚点）
+    adr_init();          // ADR：先停 SF9 等 BEACON（GCS 会主动发锚点）
     mac_set_params(g_cfg.ack_timeout_ms, g_cfg.retries);
     mac_start();
     mesh_init();

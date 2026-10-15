@@ -48,4 +48,4 @@
 ### 关键点
 - 事件消费统一收敛在 stats_task（1s 轮询），failsafe_policy 无独立任务，靠这里喂事件
 - `stats_collect()` 从 mac/mesh/frag/watchdog/radio 的 getter 聚合计数（tx/rx/ack/fwd/drop/rssi/heap...）
-- BEACON 发送已移走：原"GCS 每 1s 发 BEACON"改由 adr 模块统一管（5s 周期，SF10 锚点），本模块不再发
+- BEACON 发送已移走：原"GCS 每 1s 发 BEACON"改由 adr 模块统一管（5s 周期，SF9 锚点），本模块不再发
