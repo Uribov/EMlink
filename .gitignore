@@ -13,3 +13,6 @@ build/
 design/*-render.html
 design/webui-shot.png
 design/logo-*.png
+
+# docs/references/ 下第三方文档原件（版权归原作者，只留本地、不随开源仓库发布）
+docs/references/*.pdf

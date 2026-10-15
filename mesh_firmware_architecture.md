@@ -96,7 +96,7 @@ radio.begin(freq, bw, sf, cr, syncWord, pwr);
 
 | 层 | 模块 | 职责 | 核 |
 |---|---|---|---|
-| 驱动 | `radio` | 射频抽象接口：收发、CAD 侦听、RSSI/SNR、复位（SX126x 等按宏实现） | 0 |
+| 驱动 | `radio` | 射频抽象接口：收发、CAD 侦听（LLCC68 **支持** CAD）、RSSI/SNR、复位（按宏实现）。**芯片 = E220-900M22S = LLCC68**，两条硬约束：①SF 与带宽必须配对（**BW125 最高 SF9**）②RadioLib 驱动类要匹配芯片自报型号（E220 自报 "SX1261" → 用 `SX1262` 类）。详见 `docs/references/LLCC68_E220-900M22S.md` | 0 |
 | 驱动 | `uart_fc` | 与飞控的 UART（DMA 环形缓冲） | 1 |
 | 驱动 | `usb_cdc` | **单口分流**：一个 USB 虚拟串口同时跑 MAVLink 与 CLI（`0xFD/0xFE` 按帧收，其余当文本；P1-6） | 1 |
 | 驱动 | `power_detect` | USB 插入/拔除检测、电源状态机输入 | 1 |
