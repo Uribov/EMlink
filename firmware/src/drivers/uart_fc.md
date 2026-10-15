@@ -27,7 +27,7 @@
 
 ### 用的串口
 - `Serial0`（UART0），飞控数据专用
-- `Serial` 是 USB 日志口，`Serial1` 是 CLI 口，都**不碰**飞控这条线，互不干扰
+- `Serial`（USB 虚拟串口）是调试口——**CLI 与 MAVLink 共用这一个口**（单口字节分流，见 `usb_cdc.md`）；**`Serial1` 不存在**（从未 begin 的 UART1 = 黑洞，别用）
 
 ### 数据流（uart_task，核1 优先级10，1ms 轮询）
 ```

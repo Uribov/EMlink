@@ -3,6 +3,7 @@
 // 依赖各模块统计接口；约定见架构 §10
 // ============================================================
 #include "stats.h"
+#include <string.h>
 #include "../rtos.h"
 #include "../pinmap.h"
 #include "../net/mesh.h"
@@ -12,6 +13,7 @@
 #include "../service/watchdog.h"
 #include "../drivers/radio.h"
 #include "../drivers/power_detect.h"
+#include "../drivers/usb_cdc.h"   // Z1：stats 输出走 USB CLI 出口（Serial1 是未初始化的 UART1 = 黑洞）
 #include "../app/role.h"
 #include "../app/failsafe_policy.h"
 #include <Adafruit_NeoPixel.h>
@@ -55,14 +57,15 @@ void stats_collect(stats_t* out) {
 
 void stats_print(const stats_t* s) {
     if (!s) return;
-    // 打印到 CLI（用 Serial1）—— 由 cli 调用
+    // Z1：输出走 USB CLI 出口（usb_cli_write 内部有互斥锁，与 cli_print 同一个口）；
+    // 绝不能用 Serial1 —— 那是从未 begin() 的 UART1 硬件串口，输出会进黑洞。
     char line[128];
     snprintf(line, sizeof(line),
              "fwd=%u ttl=%u dup=%u reasm_to=%u\r\n"
              "rssi=%d snr=%d heap=%u wdt=%u rf_reinit=%u\r\n",
              s->fwd, s->dropped_ttl, s->dropped_dup, s->reasm_timeout,
              s->rssi, s->snr, s->heap_free, s->wdt_resets, s->rf_reinit);
-    Serial1.print(line);
+    usb_cli_write((const uint8_t*)line, strlen(line));
 }
 
 // LED：颜色=角色，节奏=健康；fault/reset 整灯红

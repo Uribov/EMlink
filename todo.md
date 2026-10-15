@@ -89,6 +89,11 @@
 - [ ] **DIO1 上升沿在高突发下是否漏一次**（`startReceive` 会重新武装，风险低但要实测）
 - [ ] **RadioLib 阻塞发射期间，core0 的 idle 是否被饿死 >5s**（idle 也在 WDT 监控名单里；`transmit()` 的超时 = 5×ToA，已核实）
 - [ ] **LBT/CAD：可用，保留**（此前"LLCC68 不支持 CAD"是错判，已按数据手册 §6.1.5 + Semtech 产品页 + AN1200.48 更正）→ 上板只需确认 CAD 真能判出"忙/闲"，**不需要改代码**
+- [ ] **Z2（智谱复审「能否发完还收」）**：发射后自动回接收态，靠 TX 完成边沿在 DIO1 触发 ISR（vendored RadioLib 已核实：`startTransmit` 把 IRQ_TX_DONE 映射到 DIO1）→ ISR 留一个 pending 通知 → rf_task 下一轮走"尝试读包 + 重挂接收"。
+      **判据**：若出现"只能发不能收"（本机 `status` 驱动层 `收包队列丢` 不涨、对端 `rx_frames` 恒 0，但两端 `ping` 能互相拿到 ACK），就是这条链断了。
+      **保险修法（2 行，真出问题再上）**：把 `rf_task` 循环末尾的 `radio_startReceive()` 挪到每轮循环顶（`radio_retry_tick()` 之后），代价是每秒多一次冗余 SPI 写。详见 `智谱介入审查漏洞.md` §3
+- [ ] **Z3（智谱复审「切档瞬间的 ToA」）**：`radio_set_sf`（mac_task 调）与 `adr_on_beacon` 里读 `g_cur_sf/bw/cr`（mesh_task 调）并发时，可能拿"新 SF 配旧 BW"算空中时间。
+      **判据**：若出现"ACK 误超时 / 占空比记账异常"，且集中在 5 秒周期的切档时刻（t≈0 / 1 / 4.5s），就在 `radio_set_sf` 完成点把三个变量一起原子更新。只影响计算精度、不影响芯片状态。
 - [x] **上板前必改 ①：驱动类 `SX1268` → `SX1262`** —— RadioLib 用"芯片自报型号"校验（`lib/radiolib/src/modules/SX126x/SX126x.cpp:2169`），E220 的芯片实测自报 `"SX1261 V2D 2D02"`（RadioLib issue #1329），`SX1268` 类对不上会直接返回 **-2**（表现：射频就绪=否 + LED 红 + 10s 重试）。**已改**（radio.cpp 用 `SX1262` 类，附阶梯退路注释）
 - [x] **上板前必改 ②：慢速窗 SF10@125kHz 在 LLCC68 上非法** —— BW125 最高只到 **SF9**。**已改**：`ADR_SF_SLOW` 10→9；并新增 `nvs_cfg_pair_ok()` 联动校验（CLI `nvs_cfg_set` + 网页 `/set` + 整表 `nvs_cfg_save` 三处咽喉全拦，`nvs_cfg_load` 对老配置兜底降档 + 告警）。依据：`docs/references/LLCC68_E220-900M22S.md`
 - [x] **晶振/TCXO：已按规格书结案** —— 模块用 **32MHz 无源晶振**（亿佰特规格书 "内部使用 32MHz 无源晶振"），故 `tcxoVoltage = 0.0f` **正确，无需改**（出处见 `docs/references/LLCC68_E220-900M22S.md` §6）
