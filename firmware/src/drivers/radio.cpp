@@ -2,6 +2,14 @@
 // radio.cpp —— 射频驱动抽象实现（唯一射频入口）
 // 上层只认 radio_*，不直接碰 RadioLib。芯片按宏分叉：
 //   RADIO_SX126X：SX1261/2/8 + LLCC68
+//
+// 本板模块 = E220-900M22S = LLCC68 die，用 RadioLib 的 `SX1262` 类驱动。原因：
+//   RadioLib 的 begin() 会拿"芯片自报型号"和驱动类声明的名字逐字符比对
+//   （lib/radiolib/src/modules/SX126x/SX126x.cpp:2169），对不上直接返回 -2。
+//   SX1268 类要求 "SX1268"、SX1262 类要求 "SX1261"（SX1262.h:15 注释：
+//   "all SX1262 devices report as SX1261"），而 E220 实测自报 "SX1261"（RadioLib issue #1329）。
+// 若上板仍报 -2：依次把下面的 SX1262 换成 LLCC68、再换回 SX1268 试（三者同一套 SPI 命令，
+//   切换成本 = 改这一处 + 重编译）。依据见 docs/references/LLCC68_E220-900M22S.md §3。
 // ============================================================
 #include "radio.h"
 #include "../rtos.h"
@@ -9,7 +17,7 @@
 #include "airtime.h"
 
 #if defined(RADIO_SX126X)
-static SX1268* g_radio = nullptr;
+static SX1262* g_radio = nullptr;
 static Module* g_mod   = nullptr;
 #else
 #error "radio.cpp：未定义支持的射频芯片宏（需 RADIO_SX126X）"
@@ -71,7 +79,7 @@ bool radio_init(float freq, float bw, uint8_t sf, uint8_t cr,
     SPI.begin(PIN_LORA_SCK, PIN_LORA_MISO, PIN_LORA_MOSI, PIN_LORA_NSS);
 
     g_mod   = new Module(PIN_LORA_NSS, PIN_LORA_DIO1, PIN_LORA_NRST, PIN_LORA_BUSY);
-    g_radio = new SX1268(g_mod);
+    g_radio = new SX1262(g_mod);
 
     // 射频开关 active-high（RXEN/TXEN）；禁止 setDio2AsRfSwitchCtrl（DIO2 悬空）
     g_radio->setRfSwitchPins(PIN_LORA_RXEN, PIN_LORA_TXEN);
@@ -167,7 +175,7 @@ static int16_t radio_do_cad() {
     // CAD 硬件耗时 ≈ 若干个符号周期 → 按当前 SF/BW 推导超时（符号时长 us = 2^SF / BW）
     // 5 个符号 + 3ms 余量；轮询期间 vTaskDelay(1) 让出 CPU（rf_task 优先级更高，不受影响）
     uint32_t tsym_us = ((uint32_t)1 << g_cur_sf) * 1000u / (uint32_t)g_cur_bw_khz;   // 例：SF7/125k → 1024us
-    uint32_t timeout_ms = tsym_us * 5u / 1000u + 3u;                                  // 例：SF7 → 8ms，SF10 → 44ms
+    uint32_t timeout_ms = tsym_us * 5u / 1000u + 3u;                                  // 例：SF7 → 8ms，SF9 → 23ms
     uint32_t t0 = millis();
     while (millis() - t0 <= timeout_ms) {
         int16_t res = g_radio->getChannelScanResult();

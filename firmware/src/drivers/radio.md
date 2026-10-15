@@ -17,12 +17,14 @@
 - `airtime.h`（P1-2，同层）：LoRa 空中时间公式，供 `radio_airtime_ms()` 用；纯整数、无依赖
 
 ## 关键实现点（SX126x 分支）
-1. 实例化：`SX1268 radio = new Module(PIN_LORA_NSS, PIN_LORA_DIO1, PIN_LORA_NRST, PIN_LORA_BUSY)`
+1. 实例化：`Module(PIN_LORA_NSS, PIN_LORA_DIO1, PIN_LORA_NRST, PIN_LORA_BUSY)`，再用驱动类包装 —— **本板用 `SX1262` 类**（芯片是 LLCC68，但 RadioLib 的 `begin()` 会拿"芯片自报型号"与类声明比对：`SX1268` 类要 `"SX1268"`、`SX1262` 类要 `"SX1261"`，而 E220 实测自报 `"SX1261"` → 用 `SX1268` 类会返回 -2 起不来。依据：`docs/references/LLCC68_E220-900M22S.md` §3；若仍报 -2 按 `SX1262`→`LLCC68`→`SX1268` 阶梯换）
 2. 收发切换：`radio.setRfSwitchPins(PIN_LORA_RXEN, PIN_LORA_TXEN)`（active-high）
 3. **禁止** `setDio2AsRfSwitchCtrl()`（DIO2 悬空）；晶振版不调 `setTCXO`
-4. CAD：`radio.startChannelScan()` 启动 → **状态驱动轮询** `getChannelScanResult()` 直到 `CAD_DONE`/`CAD_DETECTED`（超时按 SF/BW 推导：5 符号 + 3ms，SF7≈8ms / SF10≈43ms；P0-3）
+4. CAD：`radio.startChannelScan()` 启动 → **状态驱动轮询** `getChannelScanResult()` 直到 `CAD_DONE`/`CAD_DETECTED`（超时按 SF/BW 推导：5 符号 + 3ms，SF7≈8ms / SF9≈23ms；P0-3）。**LLCC68 支持 CAD**（数据手册 §6.1.5），LBT 可正常用
 5. 中断：DIO1 挂 GPIO 中断，ISR 内只发任务通知给 `rf_task`
-6. **OCP 过流保护**（P1-11）：`begin()` 内部会把 OCP 设成 60mA，而 +22dBm 发射需 120~140mA（Semtech 建议 140mA）→ **功率 > 14dBm 时必须在 `begin()` 之后**调 `setCurrentLimit(140.0f)`；两处 `begin()`（`radio_init` 成功路径、`radio_retry_tick` 重试成功分支）都要，否则高功率发射可能触发过流保护（输出被限/波形失真）。≤14dBm 保持库默认 60mA
+6. **OCP 过流保护**（P1-11）：`begin()` 内部会把 OCP 设成 60mA，而 +22dBm 发射需 120~140mA（Semtech 建议 140mA）→ **功率 > 14dBm 时必须在 `begin()` 之后**调 `setCurrentLimit(140.0f)`；两处 `begin()`（`radio_init` 成功路径、`radio_retry_tick` 重试成功分支）都要，否则高功率发射可能触发过流保护（输出被限/波形失真）。≤14dBm 保持库默认 60mA。
+   （LLCC68 数据手册 §5：OCP 复位默认就是 140mA、2.5mA 步进 → 我们的 140 与芯片默认一致。）
+7. **SF 与带宽必须配对**（LLCC68 硬约束）：**BW125→SF≤9**、BW250→≤10、BW500→≤11。配置面已由 `service/nvs_cfg` 的 `nvs_cfg_pair_ok()` 拦住（CLI/网页/远程 FRAME_CFG 全走它）；ADR 只用 SF7/SF9，三种带宽下都合法。（依据：`docs/references/LLCC68_E220-900M22S.md` §2）
 
 ## 对外接口
 见 `radio.h`。所有芯片实现同一组函数：
@@ -39,7 +41,7 @@
 ## 当前实现架构（已实现，供子 agent 分析）
 
 ### static 变量
-- `g_radio` / `g_mod`：RadioLib `SX1268`/`Module` 实例（堆上 new）
+- `g_radio` / `g_mod`：RadioLib `SX1262`/`Module` 实例（堆上 new）
 - `g_rf_task`：rf_task 句柄
 - `g_last_rssi` / `g_last_snr`：最近收包信号
 - `g_tx_fail`：连续发送失败计数（自救触发用）
