@@ -31,7 +31,7 @@
 - 失联判定：`failsafe_s`（默认 3s）无上行 → 发 `EV_LINK_LOST`
 - **输出出口（Z1，2026-10-16 修）**：`stats_print()` 必须走 `usb_cli_write()`（与 `cli_print` 同一个口）。
   **绝不能用 `Serial1`** —— 本工程 USB 只有一个 CDC（`Serial`），`Serial1` 是从未 `begin()` 的 UART1 硬件串口，输出会进黑洞。
-  （这个 bug 从 P1-6 单口分流改造起存在：那次任务书只圈了 `usb_cdc.cpp`/`main.cpp`/`cli.cpp`，`stats_print` 在第四个文件里被漏掉。）
+  （这个 bug 从 P1-6 单口分流改造起存在：那次只动了 `usb_cdc.cpp/.h` + `main.cpp`（`cli.cpp` 明确未改），改完**没有全仓搜"还有谁在用 `Serial1` 打印"**，`stats_print` 落在 `app/` 里成了漏网的一处。）
 
 ## 对外接口
 见 `stats.h`。
