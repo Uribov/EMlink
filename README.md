@@ -292,7 +292,7 @@ EMlink/
 | [`firmware/docs/tool.md`](firmware/docs/tool.md) | 开发环境搭建（装环境 / 编译 / 串口权限 / **校园网走 SSH 推送**） |
 | [`docs/references/`](docs/references/LLCC68_E220-900M22S.md) | **平台硬约束档案**：LLCC68 + E220-900M22S 的官方参数、合法组合、驱动匹配规则（含全部出处） |
 | [`tools/README.md`](tools/README.md) | 工程工具：批量烧录脚本、分层依赖体检脚本 |
-| [`docs/reviews/`](docs/reviews/README.md) | **审查与修复留档**：代码审查日志、修复对照表 `FIX_LOG.md`（条目→提交→验证→遗留）、任务书（已完成的在 `briefs/archive/`） |
+| [`docs/reviews/`](docs/reviews/README.md) | **审查与修复留档**：修复对照表 `FIX_LOG.md`（条目→提交→验证→遗留）、静态排查报告、第一轮审查日志。任务书是一次性工作文件，不入库长期保存 |
 | [`docs/BRINGUP.md`](docs/BRINGUP.md) | **开机操作卡**（第一次上板照它走）：备件与接线、串口权限、整片擦除、烧录命令、开机该看什么、`status` 分层怎么读、常见现象对照表、安全红线 |
 | [`todo.md`](todo.md) | **板到货后的验证清单**：开箱第一步（同版本同刷 / 整片擦除）、M0 与 A/B 档逐项复验、验收矩阵、已知限制 |
 | [`ROADMAP.md`](ROADMAP.md) | **项目尺度与待办**：为什么不过度工程化（个人低成本开源项目）、本批已完成、推后到上板之后的事、按触发条件排队的工程化项 |
