@@ -36,5 +36,4 @@
 
 ## 通道说明
 
-- 主力：**DeepSeek 官网 API**（`~/.local/bin/oc-deepseek`，透传 `-f 任务书`）
-- 南航 token 服务：**限流严重且会被校园网 WAF 拦**，非手动指定不使用
+- 编程子 agent：**OpenCode + DeepSeek 官网 API**（`~/.local/bin/oc-deepseek`，透传 `-f 任务书`）—— 唯一在用的通道

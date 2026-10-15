@@ -70,13 +70,15 @@ cd EMlink/firmware
 pio run -e esp32s3-supermini-e220-900m22s   # 首次会下载平台+工具链，5~15 分钟
 ```
 
-## 7. 推送代码（校园网必读）
+## 7. 推送代码
 
-校园网会把 **github.com 的 HTTPS（443）** 掐断（表现为 `TLS connection non-properly terminated` 或端口 443 超时），**改用 SSH 通道**：
+远端已配成 SSH（`git@github.com:Uribov/EMlink.git`），直接推即可：
 
 ```bash
-git remote -v                      # 确认是 git@github.com:Uribov/EMlink.git
-git push origin main               # 走 22 端口，实测稳定（26MB 约 14 秒）
+git remote -v                 # 确认是 git@github.com:Uribov/EMlink.git
+git push origin main          # 走 22 端口，实测稳定（26MB 约 14 秒）
 ```
 
-若 22 端口也被封，可改用 SSH over 443（`ssh.github.com:443`）。**不要**再配 `ghproxy.com` 之类的 HTTPS 加速。
+- 若某次推送报 `TLS connection non-properly terminated` 或端口 443 超时（偶发），**改用上面这个 SSH 远端**即可，不必去找加速代理。
+- 备选：SSH over 443（`ssh.github.com:443`）。
+- **不要**再配 `ghproxy.com` 之类的 HTTPS 加速：站点已停服，配了会连累所有 github 操作。

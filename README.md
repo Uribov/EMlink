@@ -289,7 +289,7 @@ EMlink/
 | [`firmware/docs/MODULE_INDEX.md`](firmware/docs/MODULE_INDEX.md) | 模块索引、依赖图、实现顺序 |
 | [`firmware/docs/CONCEPTS.md`](firmware/docs/CONCEPTS.md) | 嵌入式基础概念科普（新手向） |
 | [`firmware/docs/HARDWARE_VARIANTS.md`](firmware/docs/HARDWARE_VARIANTS.md) | 如何适配新开发板 / 新射频芯片 |
-| [`firmware/docs/tool.md`](firmware/docs/tool.md) | 开发环境搭建（装环境 / 编译 / 串口权限 / **校园网走 SSH 推送**） |
+| [`firmware/docs/tool.md`](firmware/docs/tool.md) | 开发环境搭建（装环境 / 编译 / 串口权限 / **推送走 SSH**） |
 | [`docs/references/`](docs/references/LLCC68_E220-900M22S.md) | **平台硬约束档案**：LLCC68 + E220-900M22S 的官方参数、合法组合、驱动匹配规则（含全部出处） |
 | [`tools/README.md`](tools/README.md) | 工程工具：批量烧录脚本、分层依赖体检脚本 |
 | [`docs/reviews/`](docs/reviews/README.md) | **审查与修复留档**：修复对照表 `FIX_LOG.md`（条目→提交→验证→遗留）、静态排查报告、第一轮审查日志。任务书是一次性工作文件，不入库长期保存 |
