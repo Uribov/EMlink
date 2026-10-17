@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>EM Studio</title>
+<link rel="stylesheet" href="shared.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <div class="brand">EM<span>STUDIO</span></div>
+    <div class="tb-actions">
+      <select id="port-select" aria-label="串口端口"></select>
+      <button id="btn-refresh" class="btn compact" type="button" title="重新枚举串口">刷新</button>
+      <button id="btn-connect" class="btn compact primary" type="button">连接</button>
+    </div>
+    <div class="mode-seg" role="group" aria-label="模式">
+      <button class="mode-btn active" type="button" data-mode="cli">配置</button>
+      <span class="mode-wrap" title="MAVLink 解码模式将在 D-3 提供">
+        <button class="mode-btn" type="button" data-mode="mavlink" disabled>解码</button>
+      </span>
+    </div>
+  </div>
+
+  <div id="tabs" class="tabs"></div>
+
+  <div id="empty" class="empty">
+    <div class="empty-sub">没有检测到串口设备</div>
+    <div class="empty-sub dim">插上板子后点右上角「刷新」</div>
+  </div>
+
+  <main id="main" hidden>
+    <div id="panel-device" class="panel panel-device">
+      <h2>设备信息</h2>
+      <dl class="info">
+        <div class="info-row"><dt>端口</dt><dd id="info-port">—</dd></div>
+        <div class="info-row"><dt>描述</dt><dd id="info-desc">—</dd></div>
+        <div class="info-row"><dt>序列号</dt><dd id="info-serial">—</dd></div>
+        <div class="info-row"><dt>VID:PID</dt><dd id="info-vidpid">—</dd></div>
+        <div class="info-row"><dt>波特率</dt><dd id="info-baud">115200</dd></div>
+        <div class="info-row">
+          <dt>状态</dt>
+          <dd><span id="info-status" class="st off"><i></i><span id="info-status-text">未连接</span></span></dd>
+        </div>
+      </dl>
+      <div class="note" id="device-note"></div>
+    </div>
+
+    <div id="panel-diag" class="panel panel-diag">
+      <h2>诊断台</h2>
+      <div class="quick">
+        <button class="btn compact ghost" type="button" data-cmd="status">status</button>
+        <button class="btn compact ghost" type="button" data-cmd="stats">stats</button>
+        <button class="btn compact ghost" type="button" data-cmd="get">get</button>
+        <button class="btn compact ghost" type="button" data-cmd="ver">ver</button>
+        <button class="btn compact ghost" type="button" data-cmd="help">help</button>
+      </div>
+      <div id="diag-output" class="output" role="log" aria-live="polite"></div>
+      <form id="cmd-form" class="cmd-row" autocomplete="off">
+        <span class="prompt">&gt;</span>
+        <input id="cmd-input" class="cmd-input" type="text" placeholder="连接后可发送命令"
+               autocomplete="off" spellcheck="false" disabled>
+        <button id="btn-send" class="btn compact primary" type="submit" disabled>发送</button>
+      </form>
+    </div>
+  </main>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

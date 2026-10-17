@@ -1,0 +1,106 @@
+[hidden]{display:none !important}
+html,body{height:100%}
+body{overflow:hidden}
+#app{display:flex;flex-direction:column;height:100vh;min-height:0}
+
+#topbar{display:flex;align-items:center;gap:18px;padding:14px 20px;
+border-bottom:1px solid var(--line);flex:none}
+.brand{font-size:13px;font-weight:600;letter-spacing:.22em;white-space:nowrap}
+.brand span{color:var(--muted);margin-left:8px;font-weight:500;letter-spacing:.16em}
+.tb-actions{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
+#port-select{width:auto;min-width:280px;max-width:460px;flex:0 1 420px;
+padding:9px 34px 9px 12px;font-size:13px}
+.btn.compact{display:inline-block;width:auto;margin-top:0;padding:9px 14px;white-space:nowrap}
+.btn:disabled{opacity:.38;cursor:not-allowed;border-color:var(--line);color:var(--muted)}
+.btn.primary:disabled{background:transparent;color:var(--muted);border-color:var(--line)}
+.btn:disabled:hover{border-color:var(--line)}
+.mode-seg{display:flex;border:1px solid var(--line);flex:none}
+.mode-wrap{display:flex}
+.mode-btn{appearance:none;background:transparent;border:0;border-right:1px solid var(--line);
+color:var(--muted);font:inherit;font-size:11px;font-weight:600;letter-spacing:.14em;
+text-transform:uppercase;padding:9px 16px;cursor:pointer}
+.mode-btn:last-child{border-right:0}
+.mode-btn.active{background:var(--text);color:var(--bg)}
+.mode-btn:disabled{color:var(--dim);cursor:not-allowed}
+.mode-btn:disabled:hover{color:var(--dim)}
+
+.tabs{display:flex;overflow-x:auto;border-bottom:1px solid var(--line);
+flex:none;min-height:44px;scrollbar-width:thin}
+.tab{display:flex;align-items:center;gap:8px;padding:0 12px;
+border-right:1px solid var(--line);border-bottom:1px solid transparent;
+cursor:pointer;user-select:none;color:var(--muted);
+font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;white-space:nowrap}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--text);background:#141414;border-bottom-color:var(--text)}
+.tab-name{max-width:220px;overflow:hidden;text-overflow:ellipsis}
+.tab-state{font-size:10px;letter-spacing:.08em;color:var(--dim)}
+.tab.active .tab-state{color:var(--muted)}
+.tab-close{appearance:none;background:transparent;border:0;color:var(--dim);
+font:inherit;font-size:16px;line-height:1;padding:2px 4px;cursor:pointer}
+.tab-close:hover{color:var(--err)}
+
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;
+justify-content:center;gap:10px;color:var(--dim)}
+.empty-title{font-size:12px;letter-spacing:.24em;text-transform:uppercase;color:var(--muted)}
+.empty-sub{font-size:12px;color:var(--muted)}
+.empty-sub.dim{color:var(--dim);font-size:11px}
+
+#main{flex:1;display:grid;grid-template-columns:minmax(260px,320px) 1fr;min-height:0}
+.panel{padding:22px 24px;min-height:0;display:flex;flex-direction:column}
+.panel-device{border-right:1px solid var(--line);overflow:auto}
+.panel-diag{min-width:0}
+
+.info{margin:0;padding:0}
+.info-row{display:flex;gap:14px;padding:9px 0;border-bottom:1px solid var(--line2)}
+.info-row dt{flex:0 0 70px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+color:var(--muted);padding-top:2px}
+.info-row dd{margin:0;flex:1;min-width:0;font-family:ui-monospace,Menlo,Consolas,monospace;
+font-size:12px;color:var(--text);overflow-wrap:anywhere}
+
+.quick{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;flex:none}
+.quick .btn.compact{padding:7px 11px;font-size:10px}
+
+.output{flex:1;min-height:0;overflow-y:auto;border:1px solid var(--line);
+background:#0a0a0a;padding:12px 14px;font-family:ui-monospace,Menlo,Consolas,monospace;
+font-size:12px;line-height:1.55;scrollbar-width:thin}
+.output .line{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text);
+animation:line-in .18s ease-out both}
+.output .line.echo{color:var(--muted)}
+.output .line.sys{color:var(--err)}
+@keyframes line-in{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}
+
+.cmd-row{display:flex;align-items:center;gap:10px;margin-top:14px;flex:none}
+.prompt{color:var(--dim);font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+.cmd-input{flex:1;width:auto;min-width:0}
+.cmd-input:disabled{color:var(--dim);border-color:var(--line2)}
+.cmd-input:disabled::placeholder{color:var(--dim)}
+
+.st.live i{animation:breathe 2.4s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:.4;transform:scale(.82)}50%{opacity:1;transform:scale(1)}}
+
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);
+background:var(--text);color:var(--bg);padding:10px 16px;font-size:12px;
+letter-spacing:.04em;z-index:20;max-width:80vw;animation:toast-in .16s ease-out both}
+.toast.bad{background:var(--err);color:var(--bg)}
+@keyframes toast-in{from{opacity:0;transform:translate(-50%,6px)}
+to{opacity:1;transform:translate(-50%,0)}}
+
+@media(max-width:760px){
+  #main{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+  .panel-device{border-right:0;border-bottom:1px solid var(--line)}
+  #port-select{min-width:160px}
+  .brand span{display:none}
+}
+
+/* WebKitGTK 的原生 select 必须关掉 appearance 才吃 CSS —— 否则被 GTK 画成白底 */
+select{
+  appearance:none; -webkit-appearance:none;
+  background-color:var(--bg); color:var(--text);
+  padding-right:34px;                       /* 给自绘箭头留位 */
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%237d7d7d'/></svg>");
+  background-repeat:no-repeat; background-position:right 12px center;
+}
+select:hover{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%23ededed'/></svg>")}
+select:focus{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%23ededed'/></svg>")}
+/* 下拉展开的选项列表（GTK 上不一定全生效，设上更稳） */
+option{background:var(--bg);color:var(--text)}

@@ -24,3 +24,6 @@ docs/reviews/briefs/*.md
 # Python 缓存（tools/sdr 跑自测会生成）
 __pycache__/
 *.pyc
+
+# EM Studio 的隔离 venv（本地环境，几百 MB，不进仓库）
+tools/em-studio/.venv/
