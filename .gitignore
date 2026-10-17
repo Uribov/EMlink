@@ -20,3 +20,7 @@ docs/references/*.pdf
 # 任务书（一次性过程稿）：不进仓库。源在 ~/EMlink-briefs/，仅在调用 OpenCode 时临时放入 _active.md
 docs/reviews/briefs/*.md
 !docs/reviews/briefs/README.md
+
+# Python 缓存（tools/sdr 跑自测会生成）
+__pycache__/
+*.pyc
