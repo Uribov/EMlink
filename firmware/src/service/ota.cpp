@@ -21,6 +21,7 @@
 #include <esp_ota_ops.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 
 static WebServer*   g_server = nullptr;
 static TaskHandle_t g_ota_task = nullptr;
@@ -98,25 +99,37 @@ static void add_radio_fields(String& p, const cfg_t& c) {
     static const int PWV[] = {10, 14, 17, 20, 22};   // E220 模块最大 22dBm；芯片范围 -9~22
     char b[288];
 
-    // 频率：整数 + 小数(0.05 步进)，均为下拉（不再手输）
+    // 频率：整数 + 十分位/百分位/千分位，四个下拉一行（用户 2026-10-17：三位精度）
     int fi = (int)c.freq;
-    int ff = (int)((c.freq - (float)fi) * 100.0f + 0.5f);   // 百分位
-    if (ff % 5) ff -= ff % 5;                                 // 归到 0.05 步进
-    if (ff > 95) ff = 95;
+    long frac = lround(((double)c.freq - (double)fi) * 1000.0);   // 用 double，避免 float 截断
+    if (frac < 0) frac = 0;
+    if (frac > 999) frac = 999;
+    int d1 = (int)(frac / 100);          // 十分位
+    int d2 = (int)((frac / 10) % 10);    // 百分位
+    int d3 = (int)(frac % 10);           // 千分位
 
-    p += "<div><label>频率配置</label><div class=\"row\">"
+    p += "<div class=\"wide\"><label>频率配置</label><div class=\"row\">"
          "<select id=\"fi\" name=\"freq_int\">";
     for (int v = (int)RADIO_FREQ_MIN_MHZ; v <= (int)RADIO_FREQ_MAX_MHZ; v++) {
         snprintf(b, sizeof(b), "<option%s>%d</option>", (v == fi) ? " selected" : "", v);
         p += b;
     }
-    p += "</select><select id=\"ff\" name=\"freq_frac\">";
-    for (int i = 0; i < 20; i++) {
-        snprintf(b, sizeof(b), "<option value=\"%.2f\"%s>%.2f</option>",
-                 i * 0.05, (i * 5 == ff) ? " selected" : "", i * 0.05);
-        p += b;
+    p += "</select>";
+    {
+        const char* NAMES[3] = {"freq_d1", "freq_d2", "freq_d3"};   // 十分位 / 百分位 / 千分位
+        const char* IDS[3]   = {"fd1", "fd2", "fd3"};
+        const int    CUR[3]  = {d1, d2, d3};
+        for (int i = 0; i < 3; i++) {
+            snprintf(b, sizeof(b), "<select id=\"%s\" name=\"%s\">", IDS[i], NAMES[i]);
+            p += b;
+            for (int v = 0; v <= 9; v++) {
+                snprintf(b, sizeof(b), "<option%s>%d</option>", (v == CUR[i]) ? " selected" : "", v);
+                p += b;
+            }
+            p += "</select>";
+        }
     }
-    p += "</select></div></div>";
+    p += "</div></div>";
 
     // 扩频因子 / 带宽 / 编码率（下拉，保持原样）
     p += "<div><label for=\"sf\">扩频因子</label><select id=\"sf\" name=\"sf\">";
@@ -237,14 +250,17 @@ static void handle_set() {
     bool bad = false;
     String bad_key, bad_val;
     auto mark_bad = [&](const char* k, const char* v) { bad = true; bad_key = k; bad_val = v; };
-    if (s.hasArg("freq_int") && s.hasArg("freq_frac")) {
-        String vi = trim_ws(s.arg("freq_int"));
-        String vf = trim_ws(s.arg("freq_frac"));
-        double f = atof(vi.c_str()) + atof(vf.c_str());
+    if (s.hasArg("freq_int") && s.hasArg("freq_d1") && s.hasArg("freq_d2") && s.hasArg("freq_d3")) {
+        String vi  = trim_ws(s.arg("freq_int"));
+        String v1  = trim_ws(s.arg("freq_d1"));
+        String v2  = trim_ws(s.arg("freq_d2"));
+        String v3  = trim_ws(s.arg("freq_d3"));
+        double f = atof(vi.c_str()) + atof(v1.c_str()) / 10.0
+                 + atof(v2.c_str()) / 100.0 + atof(v3.c_str()) / 1000.0;
         char fb[16];
-        snprintf(fb, sizeof(fb), "%.2f", f);
+        snprintf(fb, sizeof(fb), "%.3f", f);        // 三位精度
         if (nvs_cfg_value_ok("freq", fb)) c.freq = (float)f;
-        else mark_bad("freq_int+freq_frac", fb);
+        else mark_bad("freq", fb);
     }
     if (s.hasArg("sf")) {
         String vs = trim_ws(s.arg("sf"));

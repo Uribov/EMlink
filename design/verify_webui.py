@@ -118,12 +118,16 @@ def main() -> int:
     status = ('<span>节点 <b>01</b></span><span>角色 <b>air</b></span>'
               '<span class="st"><i></i>加密已启用</span>')
     fields = (
-        '<div><label>频率配置</label><div class="row">'
+        '<div class="wide"><label>频率配置</label><div class="row">'
         '<select id="fi" name="freq_int">'
         + ''.join(f'<option{" selected" if v == 915 else ""}>{v}</option>' for v in range(862, 931))
-        + '</select><select id="ff" name="freq_frac">'
-        + ''.join(f'<option value="{i * 0.05:.2f}"{" selected" if i == 0 else ""}>{i * 0.05:.2f}</option>'
-                  for i in range(20))
+        + '</select>'
+        + '<select id="fd1" name="freq_d1">'
+        + ''.join(f'<option{" selected" if v == 1 else ""}>{v}</option>' for v in range(10))
+        + '</select><select id="fd2" name="freq_d2">'
+        + ''.join(f'<option{" selected" if v == 2 else ""}>{v}</option>' for v in range(10))
+        + '</select><select id="fd3" name="freq_d3">'
+        + ''.join(f'<option{" selected" if v == 3 else ""}>{v}</option>' for v in range(10))
         + '</select></div></div>'
         '<div><label for="sf">扩频因子</label><select id="sf" name="sf">'
         + ''.join(f'<option{" selected" if v == 7 else ""}>{v}</option>' for v in (7, 8, 9, 10, 11))
@@ -179,7 +183,8 @@ def main() -> int:
             'action="/exit"', 'action="/factory"', 'name="firmware"', 'name="off"',
             '请输入正确的格式', '恢复出厂默认',
             'enctype="multipart/form-data"', 'id="kerr"',
-            'name="freq_int"', 'name="freq_frac"', 'name="power"', 'name="node_id"',
+            'name="freq_int"', 'name="freq_d1"', 'name="freq_d2"', 'name="freq_d3"',
+            'name="power"', 'name="node_id"',
             'name="role"', 'name="auto_wifi_s"', 'type="range"']
     missing = [f for f in must if f not in main_page]
     if missing:

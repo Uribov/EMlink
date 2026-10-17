@@ -8,6 +8,7 @@ import threading
 
 import webview
 
+from backend import params
 from backend.devices import list_devices
 from backend.serial_link import SerialLink
 
@@ -98,6 +99,47 @@ class Api:
         if link is None:
             return self._err("设备不存在")
         return self._ok(link.poll())
+
+    def api_get_config(self, device_id):
+        link = self._get(device_id)
+        if link is None:
+            return self._err("设备不存在")
+        if link.status != "connected":
+            return self._err("设备未连接")
+        try:
+            data, note = params.read_config(link)
+        except Exception as exc:
+            return self._err(f"读配置失败：{exc}")
+        return {"ok": True, "data": data, "error": note or ""}
+
+    def api_set_config(self, device_id, key, value):
+        link = self._get(device_id)
+        if link is None:
+            return self._err("设备不存在")
+        try:
+            ok, message = params.set_config(link, key, value)
+        except Exception as exc:
+            return self._err(f"设置失败：{exc}")
+        return {
+            "ok": True,
+            "data": {"key": str(key or ""), "ok": bool(ok)},
+            "error": "" if ok else message,
+        }
+
+    def api_save_config(self, device_id, reboot=False):
+        link = self._get(device_id)
+        if link is None:
+            return self._err("设备不存在")
+        try:
+            saved, rebooting, message = params.save_config(link, bool(reboot))
+        except Exception as exc:
+            return self._err(f"保存失败：{exc}")
+        error = message if message else ("" if saved else "保存失败")
+        return {
+            "ok": True,
+            "data": {"saved": bool(saved), "rebooting": bool(rebooting)},
+            "error": error,
+        }
 
     def api_close_tab(self, device_id):
         device_id = str(device_id or "")

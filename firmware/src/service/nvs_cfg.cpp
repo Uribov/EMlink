@@ -333,7 +333,7 @@ bool nvs_cfg_get(const char* key, char* val, size_t len) {
     } else if (strcmp(key, "sysid") == 0) {
         snprintf(val, len, "%u", p.getUChar("sysid", 0));
     } else if (strcmp(key, "freq") == 0) {
-        snprintf(val, len, "%.1f", p.getFloat("freq", 915.0f));
+        snprintf(val, len, "%.3f", p.getFloat("freq", 915.0f));
     } else if (strcmp(key, "sf") == 0) {
         snprintf(val, len, "%u", p.getUChar("sf", 7));
     } else if (strcmp(key, "bw") == 0) {

@@ -27,25 +27,126 @@
   <div id="tabs" class="tabs"></div>
 
   <div id="empty" class="empty">
-    <div class="empty-sub">没有检测到串口设备</div>
-    <div class="empty-sub dim">插上板子后点右上角「刷新」</div>
+    <div class="empty-sub" id="empty-main">没有检测到串口设备</div>
+    <div class="empty-sub dim" id="empty-hint">插上板子后点「刷新」</div>
   </div>
 
   <main id="main" hidden>
-    <div id="panel-device" class="panel panel-device">
-      <h2>设备信息</h2>
-      <dl class="info">
-        <div class="info-row"><dt>端口</dt><dd id="info-port">—</dd></div>
-        <div class="info-row"><dt>描述</dt><dd id="info-desc">—</dd></div>
-        <div class="info-row"><dt>序列号</dt><dd id="info-serial">—</dd></div>
-        <div class="info-row"><dt>VID:PID</dt><dd id="info-vidpid">—</dd></div>
-        <div class="info-row"><dt>波特率</dt><dd id="info-baud">115200</dd></div>
-        <div class="info-row">
-          <dt>状态</dt>
-          <dd><span id="info-status" class="st off"><i></i><span id="info-status-text">未连接</span></span></dd>
+    <div class="col-left">
+      <div id="panel-device" class="panel panel-device">
+        <h2>设备信息</h2>
+        <dl class="info">
+          <div class="info-row"><dt>端口</dt><dd id="info-port">—</dd></div>
+          <div class="info-row"><dt>描述</dt><dd id="info-desc">—</dd></div>
+          <div class="info-row"><dt>序列号</dt><dd id="info-serial">—</dd></div>
+          <div class="info-row"><dt>VID:PID</dt><dd id="info-vidpid">—</dd></div>
+          <div class="info-row"><dt>波特率</dt><dd id="info-baud">115200</dd></div>
+          <div class="info-row">
+            <dt>状态</dt>
+            <dd><span id="info-status" class="st off"><i></i><span id="info-status-text">未连接</span></span></dd>
+          </div>
+        </dl>
+        <div class="note" id="device-note"></div>
+      </div>
+
+      <div id="panel-params" class="panel panel-params">
+        <h2>参数配置</h2>
+        <div id="params-note" class="err" hidden></div>
+        <div class="grid">
+          <div class="pfield wide" data-param="role">
+            <label for="cfg-role">角色</label>
+            <select id="cfg-role" data-key="role">
+              <option value="">未设置</option>
+              <option value="air">air</option>
+              <option value="gcs">gcs</option>
+              <option value="relay">relay</option>
+            </select>
+          </div>
+
+          <div class="pfield wide" data-param="node_id">
+            <label for="cfg-node-id">节点号（1–254）</label>
+            <div class="slider-row">
+              <input type="range" id="cfg-node-range" min="1" max="254" step="1" value="1"
+                     aria-label="节点号滑块">
+              <input type="text" id="cfg-node-id" data-key="node_id" inputmode="numeric"
+                     value="1" autocomplete="off" spellcheck="false">
+            </div>
+          </div>
+
+          <div class="pfield wide" data-param="freq">
+            <label for="cfg-freq-int">频率配置（MHz）</label>
+            <div class="row freq-row">
+              <select id="cfg-freq-int" data-key="freq" aria-label="频率整数部分"></select>
+              <span class="freq-dot" aria-hidden="true">.</span>
+              <select id="cfg-freq-d1" aria-label="频率十分位"></select>
+              <select id="cfg-freq-d2" aria-label="频率百分位"></select>
+              <select id="cfg-freq-d3" aria-label="频率千分位"></select>
+            </div>
+          </div>
+
+          <div class="pfield wide" data-param="sf">
+            <label for="cfg-sf">扩频因子 SF（7–11，受带宽限制）</label>
+            <select id="cfg-sf" data-key="sf"></select>
+          </div>
+
+          <div class="pfield wide" data-param="bw">
+            <label for="cfg-bw">带宽 BW（kHz）</label>
+            <select id="cfg-bw" data-key="bw">
+              <option value="125">125</option>
+              <option value="250">250</option>
+              <option value="500">500</option>
+            </select>
+          </div>
+
+          <div id="sf-bw-warning" class="err wide" hidden></div>
+
+          <div class="pfield wide" data-param="cr">
+            <label for="cfg-cr">编码率 CR</label>
+            <select id="cfg-cr" data-key="cr">
+              <option value="5">5 (4/5)</option>
+              <option value="6">6 (4/6)</option>
+              <option value="7">7 (4/7)</option>
+              <option value="8">8 (4/8)</option>
+            </select>
+          </div>
+
+          <div class="pfield wide" data-param="power">
+            <label for="cfg-power">发射功率（dBm）</label>
+            <select id="cfg-power" data-key="power">
+              <option value="10">10</option>
+              <option value="14">14</option>
+              <option value="17">17</option>
+              <option value="20">20</option>
+              <option value="22">22</option>
+            </select>
+          </div>
+
+          <div class="pfield wide" data-param="auto_wifi_s">
+            <label for="cfg-auto-wifi">维护延时（秒，15–60）</label>
+            <div class="slider-row">
+              <input type="range" id="cfg-auto-wifi-range" min="15" max="60" step="1" value="30"
+                     aria-label="维护延时滑块">
+              <input type="text" id="cfg-auto-wifi" data-key="auto_wifi_s" inputmode="numeric"
+                     value="30" autocomplete="off" spellcheck="false">
+            </div>
+          </div>
+
+          <div class="pfield wide" data-param="crypto">
+            <label for="cfg-crypto">加密密钥（32 hex / off）</label>
+            <input type="text" id="cfg-crypto" data-key="crypto" maxlength="32"
+                   placeholder="留空不改；32 位 hex 开启，off 关闭"
+                   autocomplete="off" spellcheck="false">
+            <div class="note" id="cfg-crypto-state">加密：未知</div>
+          </div>
+
+          <div class="params-actions wide">
+            <button id="btn-save-config" class="btn" type="button">保存</button>
+            <button id="btn-save-reboot" class="btn primary" type="button">保存并重启</button>
+          </div>
+          <div class="note wide" id="params-hint">改动会立即发 set；点「保存」通知板子重载参数（射频/角色类通常需重启生效）。当前固件 set 已直接写 NVS。</div>
+          <div class="note wide" id="params-dirty" hidden>有未保存改动</div>
         </div>
-      </dl>
-      <div class="note" id="device-note"></div>
+      </div>
     </div>
 
     <div id="panel-diag" class="panel panel-diag">
