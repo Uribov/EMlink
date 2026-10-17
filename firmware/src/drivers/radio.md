@@ -73,10 +73,28 @@ DIO1 上升沿中断 `radio_isr` → `vTaskNotifyGiveFromISR(g_rf_task)` → rf_
 7. 运行时切 SF（`radio_set_sf`，ADR 用）：`standby() → setSpreadingFactor() → startReceive()`，**必须先 standby**（SX126x 芯片规定改调制参数不能在收发中途写寄存器）；同时更新 `g_cur_sf`
 8. 暂停/恢复（`radio_suspend`/`radio_resume`，OTA 维护模式用）：suspend 设 `g_suspended=true` + standby，之后所有射频操作 no-op；resume 清标志 + startReceive
 9. **任务看门狗**（P0-1）：`rf_task` 开头 `watchdog_register_current()` 订阅；等 DIO1 通知带 **1s 超时**（`ulTaskNotifyTake(pdTRUE, 1000ms)`），超时也醒来 `watchdog_feed()`，保证长时间无包时不被 WDT 判死（通知是计数锁存，超时后到达的中断下一轮仍能命中，不丢包）
-10. **就绪状态与周期重试**（P0-4）：`radio_is_ready()` 对外暴露；`radio_init` 失败置 false；`rf_task` 每轮调 `radio_retry_tick()`——未就绪且距上次 ≥10s 就重新 `begin()`，成功则重挂 DIO1 中断、置就绪并打印日志。**重试不触发 `watchdog_rf_fault`**（避免"累计 3 次整机重启"被周期重试放大）
+10. **就绪状态与周期重试**（P0-4 / S4 修订）：`radio_is_ready()` 对外暴露；`radio_init` 失败置 false 并记 `g_last_err`。`rf_task` 每轮调 `radio_retry_tick()`：
+    - **从未成功过**（`!g_ever_ready`）→ 视为"没有射频模块"，**一次都不自动重试**，置 `g_absent` 并打印诊断（上板实测：开机那次 `begin()` 正常返回失败，但紧接着的重试可能死等 >5s → rf_task 不喂狗 → 任务看门狗重启）；
+    - **曾经成功过**（热故障）→ 每 10s 重试，成功则重挂 DIO1 中断、置就绪并打印；
+    - 重试前先 `watchdog_feed()`；重试不触发 `watchdog_rf_fault`（避免被重试放大）
 11. **射频单所有者**（P0-2）：可用 `grep -rn "g_radio->" firmware/src` 自查——除 `drivers/radio.cpp` 外全工程再无 `g_radio->` / `SPI.` / `attachInterrupt`；上层模块（adr/mac/ota/watchdog）调用方式零改动。约束：调用 `radio_*` 的任务**不得把任务通知用于其它用途**（通知=请求完成信号）
 12. **空中时间（P1-2）**：`radio_airtime_ms(len)` = `airtime_ms(len, g_cur_sf, g_cur_bw_khz, g_cur_cr)`（公式与实测表见 `airtime.md`）。它是**纯计算**，不走请求队列、不碰 SPI，任何任务可随时调；未就绪返回 0
 
 ### 故障自救（架构 §8.2）
 - `radio_transmit` 连续 3 次失败 → `watchdog_rf_fault()`（软复位 NRST，累计 3 次整机重启）
-- `radio_init` 失败 → `watchdog_rf_fault()` + 返回 false；main.cpp 里重试一次
+- `radio_init` 失败 → 记错误码并返回 false；**只有 `g_ever_ready`（曾经成功过）才调 `watchdog_rf_fault()`** —— 否则"没插模块"会被放大成每 33 s 一次的整机重启循环（上板实测过的坑）
+
+### 无射频模块的诊断与降级（S4，2026-10-17 上板实测）
+
+现场：板子没接 E220 时，`adr_init()` 的 `radio_set_sf()` 会投请求给 `rf_task` 并**无限等回复**（原 `portMAX_DELAY`）；而 `rf_task` 正卡在重试的 `begin()` 里 → 两边互等 → `setup()` 停死（CLI/WiFi 都起不来）→ 5 s 后任务看门狗 panic → 每 33 s 重启一次。
+
+现在的行为（三条，缺一不可）：
+
+1. **请求等待有上限**：`radio_call()` 用 `RADIO_REQ_TIMEOUT_MS = 3000` 等所有者，超时返回 -1 并计 `radio_req_timeout_count()`；调用方永不被单个卡死的所有者拖死。
+   请求**按值放进队列**（`xQueueCreate(..., sizeof(radio_req_t))`），不是指针 —— 否则超时返回后栈帧销毁、`rf_task` 稍后写 `req->result` 就是 use-after-free（实测 `LoadProhibited`，`addr2line` 定位到 `rf_task_func`）。
+2. **无模块即停用**：从未成功过 → `g_absent = true`，之后所有 `radio_*`（除 suspend/resume）立即返回 -1，不排队不等待；重试也不再进入可能死等的 `begin()`。
+3. **明确的现场诊断**：启动日志 + CLI `status` 都直说 `模块=未检测到（err=-2）← 检查 E220 排线/供电，装好后 reset`。
+
+诊断接口：`radio_last_error()`（最近错误码）、`radio_absent()`、`radio_init_fail_count()`、`radio_req_timeout_count()`。
+
+已知边界：`begin()` 内部的死等**没有从根上消除**（RadioLib 等 BUSY 无超时），只是靠"无模块不重试"绕开；若开机那一次 `begin()` 就死等，仍会被看门狗重启。超时返回后请求可能稍后仍被执行（例如迟到发一帧），不提供 exactly-once。

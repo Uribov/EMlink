@@ -144,9 +144,25 @@ void cli_handle_line(const char* line) {
         cli_print("--- 驱动层 ---\r\n");
         // 驱动层：射频/串口/USB 外设自身的收发与队列。丢失发生在本机硬件边界，
         // 与上层协议无关，先看这层能排除"板子/接线/驱动"问题。
+        // 射频模块诊断：一眼判断"是没插/坏了"还是"配错了"
+        if (radio_is_ready()) {
+            snprintf(line, sizeof(line),
+                     "射频: 就绪=%s  模块=在线  请求超时=%u\r\n",
+                     "是", (unsigned)radio_req_timeout_count());
+        } else if (radio_absent()) {
+            snprintf(line, sizeof(line),
+                     "射频: 就绪=否  模块=未检测到（err=%d）← 检查 E220 排线/供电，装好后 reset\r\n",
+                     (int)radio_last_error());
+        } else {
+            snprintf(line, sizeof(line),
+                     "射频: 就绪=否  模块=初始化失败（err=%d，已试 %u 次）  请求超时=%u\r\n",
+                     (int)radio_last_error(), (unsigned)radio_init_fail_count(),
+                     (unsigned)radio_req_timeout_count());
+        }
+        cli_print(line);
+
         snprintf(line, sizeof(line),
-                 "射频: 就绪=%s  收包队列丢=%u  射频请求丢=%u  UART丢=%u  USB丢=%u\r\n",
-                 radio_is_ready() ? "是" : "否",
+                 "外设: 收包队列丢=%u  射频请求丢=%u  UART丢=%u  USB丢=%u\r\n",
                  (unsigned)radio_rx_drop_count(), (unsigned)radio_req_drop_count(),
                  (unsigned)uart_fc_drop_count(), (unsigned)usb_cdc_drop_count());
         cli_print(line);

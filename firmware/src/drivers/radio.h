@@ -71,4 +71,14 @@ void radio_resume();
 void radio_start(void);
 
 uint32_t radio_rx_drop_count(void);    // 收包队列满丢弃数（P1-10）
+
+// 最近一次射频初始化错误码（0 = 无错误；错误码见 RadioLib）
+int16_t radio_last_error(void);
+// 从未成功初始化过且重试用尽 → 判定"没有射频模块"：之后所有射频操作立即失败，不排队、不等待
+bool radio_absent(void);
+// 连续初始化失败次数（1 = 开机那一次就失败；用于 status 早期就能看出异常）
+uint8_t radio_init_fail_count(void);
+// 射频请求等待超时次数（所有者长时间不回话，说明射频任务卡住）
+uint32_t radio_req_timeout_count(void);
+
 uint32_t radio_req_drop_count(void);   // 射频请求队列满丢弃数（P1-10）

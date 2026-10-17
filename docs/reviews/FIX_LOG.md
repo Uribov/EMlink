@@ -1,6 +1,6 @@
 # EMlink 修复对照表（FIX LOG）
 
-> 审查基线：`CODE_REVIEW_2026-10-14.md`（原样保留，不修改；里面多数问题**已修**，现状以本文件为准）。工作流与目录说明见 `README.md`；任务书是**一次性工作文件**（`briefs/`），随该项提交一起删除 —— 长期记录只有本文件的对照表。
+> 审查基线：`CODE_REVIEW_2026-10-14.md`（原样保留，不修改；里面多数问题**已修**，现状以本文件为准）。工作流与目录说明见 `README.md`；任务书**不进仓库**（源在 `~/EMlink-briefs/`，完成即归档到其 `done/`，规矩见 `briefs/README.md`）—— 长期记录只有本文件的对照表。
 
 ## M0 —— 上板前阻断项（已完成）
 
@@ -35,6 +35,13 @@
 | **B-3a/B-3b / P1-10** 令牌桶流量整形 | `992d646` | 新增 `service/ratelimit`：按 QoS 分桶（控制类保底 10%、用户类 90%，计价=空中毫秒）；**准入即丢不阻塞**（`MAC_DROP_RATE`）；单帧超桶放行；补充令牌改为**余量累加**；`mac_start` 调 `ratelimit_init` | 编译过；令牌数学逐项手算（含 dt=5ms 修复前后对比：0 → 正常）；与 duty 的层序/口径核对 | 份额参数（10%/30ms/100ms）待外场测；QOS1 与 QOS0 未细分 |
 | **B-3c / P1-10** 各层丢弃计数 + 链路质量 | `b95da6e` | 4 个丢弃点加计数（发送队列/收包队列/请求队列/UART/USB——原来全静默丢）；`link_quality_pct` 由恒 0 改为 ACK 成功率；CLI 新增「丢包」行 | 编译过；`rtos_tx_enqueue` 改写后与三个 `return` 分支等价比对；各计数写入者的任务上下文核对（单写多读） | 上报到 MAVLink RADIO_STATUS 属 P2 |
 | **B-3d / P1-10** MAVLink 流限速 | `a628568` | `mav_router` 按消息 ID 降频（SYS_STATUS 1s；GPS/ATTITUDE/位置/VFR_HUD 500ms；IMU/RC 200ms）；HEARTBEAT/COMMAND/PARAM/MISSION 永远放行；表外 msgid 一律放行；计数进 CLI「遥测降频」 | 编译过；限速表语义与"未知不擅自丢"策略核对；单线程上下文核对 | 阈值待实测；未区分上下行来源 |
+
+## 上板 bring-up（2026-10-17，首块 ESP32-S3 开发板）
+
+| 条目 | 提交 | 改了什么（要点） | 怎么验证的 | 遗留 |
+|---|---|---|---|---|
+| **S3** 4MB 板刷完启动崩溃 | 未提交 | `platformio.ini` 只设了 `board_build.flash_size`，而 esptool 的 `--flash_size` 取的是 board 的 `upload.flash_size`（`esp32-s3-devkitc-1` 默认 8MB）→ 镜像头声明 8MB、实板 4MB → `assert failed: do_core_init` 重启循环。补 `board_upload.flash_size = 4MB` + `board_upload.maximum_size = 4194304` | 上板：串口不再报 `Detected size(4096k) ... (8192k)`，正常启动到 CLI | 换 8MB 板需另建 env |
+| **S4** 无射频模块时启动死锁 | 未提交 | ①`radio_call()` 等待加 3s 超时（原 `portMAX_DELAY`）；②请求队列改**值拷贝**（原指针 + 超时 = use-after-free，实测 `LoadProhibited`，`addr2line` 定位到 `rf_task_func`）；③从未成功过即判定"无模块"→`g_absent`，一次都不自动重试、所有射频操作立即失败；④只有 `g_ever_ready` 才 `watchdog_rf_fault()`；⑤启动日志与 CLI 明确报"未检测到射频模块（err=…）" | 上板（**无 E220**）：启动到 `===== 就绪 =====`；`status` 显示 `模块=未检测到（err=-2）`、`wdt复位=0`、观察期零重启；`wifi` 起来 AP `EMlink-187 @ 192.168.4.1` | `begin()` 内部死等未根除（靠"无模块不重试"绕开）；超时后请求可能迟到执行；WiFi 页面功能待手机实测 |
 
 ## 本轮新发现（审查日志之外的补充）
 

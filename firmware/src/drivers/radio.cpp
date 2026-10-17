@@ -42,6 +42,15 @@ static uint8_t g_init_sf, g_init_cr;
 static uint16_t g_init_sync;
 static int8_t g_init_pwr;
 
+static int16_t g_last_err = 0;              // 最近一次 begin() 的错误码
+static volatile bool g_ever_ready = false;  // 曾经成功初始化过（区分"热故障"与"根本没有模块"）
+static volatile bool g_absent = false;      // 判定无模块：射频已停用
+static uint8_t g_init_fails = 0;            // 连续初始化失败次数
+static uint32_t g_req_timeout = 0;          // 请求等待超时次数
+
+// 射频请求等待上限：正常操作最长是 200B 满帧发送（SF9/BW125 约 1.7s），3s 留余量
+#define RADIO_REQ_TIMEOUT_MS  3000
+
 // ---- 射频单所有者（P0-2）：请求模型（仅本模块内部使用，不进头文件）----
 #define RADIO_REQ_HI_LEN 6
 #define RADIO_REQ_LO_LEN 4
@@ -87,9 +96,12 @@ bool radio_init(float freq, float bw, uint8_t sf, uint8_t cr,
     // 晶振版无 TCXO：tcxoVoltage=0
     int16_t st = g_radio->begin(freq, bw, sf, cr, sync, pwr, 8, 0.0f);
     if (st != RADIOLIB_ERR_NONE) {
-        // 初始化失败：置未就绪，触发射频自救（软复位，累计 3 次整机重启）
+        // 初始化失败：置未就绪。只有"曾经成功过"才走射频自救——
+        // 否则"没插模块"会被 watchdog_rf_fault 放大成整机重启循环。
         g_radio_ready = false;
-        watchdog_rf_fault();
+        g_last_err = st;
+        g_init_fails++;
+        if (g_ever_ready) watchdog_rf_fault();
         return false;
     }
 
@@ -100,6 +112,10 @@ bool radio_init(float freq, float bw, uint8_t sf, uint8_t cr,
 
     attachInterrupt(digitalPinToInterrupt(PIN_LORA_DIO1), radio_isr, RISING);
     g_radio_ready = true;
+    g_ever_ready  = true;
+    g_absent      = false;
+    g_init_fails  = 0;
+    g_last_err    = 0;
     g_cur_sf = sf;
     g_cur_bw_khz = bw;
     g_cur_cr = cr;
@@ -237,6 +253,8 @@ static int16_t radio_exec_inline(uint8_t op, uint8_t sf, const uint8_t* data, si
 
 static int16_t radio_call(uint8_t op, uint8_t sf, const uint8_t* data, size_t len, bool hi) {
     TaskHandle_t me = xTaskGetCurrentTaskHandle();
+    // 判定无模块：不排队、不等待（否则调用方会在死掉的射频任务上无限等）
+    if (g_absent && op != ROP_SUSPEND && op != ROP_RESUME) return -1;
     if (g_radio_owner == nullptr || g_radio_owner == me) {
         return radio_exec_inline(op, sf, data, len);   // 启动早期 / 所有者自己调用
     }
@@ -250,13 +268,19 @@ static int16_t radio_call(uint8_t op, uint8_t sf, const uint8_t* data, size_t le
     }
 
     (void)ulTaskNotifyTake(pdTRUE, 0);                 // 清残留通知，防误判完成
+    // xQueueSend 按值拷贝整个 req；因此调用方超时返回也不会留下悬垂指针
     QueueHandle_t q = hi ? g_req_hi : g_req_lo;
     if (xQueueSend(q, &req, pdMS_TO_TICKS(100)) != pdTRUE) {
         g_req_drop++;   // 请求队列满：快速失败（P1-10 加计数）
         return -1;
     }
     xTaskNotifyGive(g_radio_owner);                    // 唤醒所有者（与 DIO1 通知共用，多一次无害）
-    (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);     // 等所有者执行完（WDT 是兜底）
+    // 等所有者执行完；超时说明所有者卡住（例如无模块时 begin() 死等），
+    // 此时绝不无限等——调用方必须能继续往下走。
+    if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(RADIO_REQ_TIMEOUT_MS)) == 0) {
+        g_req_timeout++;
+        return -1;
+    }
     return req.result;
 }
 
@@ -302,23 +326,48 @@ void radio_resume() {
 
 // 射频初始化失败后的周期重试（不触发 watchdog_rf_fault，避免"累计 3 次整机重启"被重试放大）
 static void radio_retry_tick() {
-    if (g_radio_ready || !g_radio || g_suspended) return;
+    if (g_radio_ready || !g_radio || g_suspended || g_absent) return;
+
+    // 从未成功过 → 判定"没有模块"，一次都不自动重试。
+    // 实测：开机那一次 begin() 会正常返回失败，但紧接着的重试就可能死等（阻塞 >5 s）
+    // → rf_task 不喂狗 → 任务看门狗重启。所以宁可不再重试；
+    // 装好模块后由用户 reset（开机重新 init）即可。
+    if (!g_ever_ready) {
+        g_absent = true;
+        Serial.printf("[radio] 未检测到射频模块（err=%d）：射频已停用，"
+                      "CLI/WiFi 维护模式可用。检查 E220 排线/供电后敲 reset 重试。\n",
+                      (int)g_last_err);
+        return;
+    }
+
     static uint32_t last_ms = 0;
     uint32_t now = millis();
     if (now - last_ms < RADIO_RETRY_MS) return;
     last_ms = now;
+
+    watchdog_feed();   // 进入可能阻塞的 begin() 前先喂一次狗（能减少、但不能消除 begin 内部死等）
 
     int16_t st = g_radio->begin(g_init_freq, g_init_bw, g_init_sf, g_init_cr, g_init_sync, g_init_pwr, 8, 0.0f);
     if (st == RADIOLIB_ERR_NONE) {
         if (g_init_pwr > 14) g_radio->setCurrentLimit(140.0f);
         attachInterrupt(digitalPinToInterrupt(PIN_LORA_DIO1), radio_isr, RISING);
         g_radio_ready = true;
+        g_ever_ready  = true;
+        g_init_fails  = 0;
+        g_last_err    = 0;
         g_cur_sf = g_init_sf;
         g_cur_bw_khz = g_init_bw;
         g_cur_cr = g_init_cr;
         Serial.println("[radio] 初始化重试成功，射频已恢复");
     } else {
-        Serial.printf("[radio] 初始化重试失败（%d），%dms 后再试\n", (int)st, RADIO_RETRY_MS);
+        g_last_err = st;
+        if (!g_ever_ready) {
+            // 正常不会走到这里（从未成功过的分支在函数开头就 return 了），保留以防御意外路径
+            g_init_fails++;
+            Serial.printf("[radio] 初始化失败（err=%d）\n", (int)st);
+        } else {
+            Serial.printf("[radio] 初始化重试失败（%d），%dms 后再试\n", (int)st, RADIO_RETRY_MS);
+        }
     }
 }
 
@@ -331,15 +380,18 @@ static void rf_task_func(void* arg) {
         radio_retry_tick();
 
         // 1) 先服务请求（hi 优先，非阻塞）——服务完立刻 continue 再查
-        radio_req_t* req = nullptr;
+        // 队列元素是结构体副本（值语义），这里拿到的是本任务栈上的独立拷贝。
+        // 注意：radio_req_t 含 data[FRAME_MTU]（~210B），必须在循环体内声明而不要提到函数顶部，
+        // 否则这份栈空间会一直占用 rf_task 栈。
+        radio_req_t req;
         if (xQueueReceive(g_req_hi, &req, 0) == pdTRUE) {
-            req->result = radio_exec_inline(req->op, req->sf, req->data, req->len);
-            if (req->waiter) xTaskNotifyGive(req->waiter);
+            req.result = radio_exec_inline(req.op, req.sf, req.data, req.len);
+            if (req.waiter) xTaskNotifyGive(req.waiter);
             continue;
         }
         if (xQueueReceive(g_req_lo, &req, 0) == pdTRUE) {
-            req->result = radio_exec_inline(req->op, req->sf, req->data, req->len);
-            if (req->waiter) xTaskNotifyGive(req->waiter);
+            req.result = radio_exec_inline(req.op, req.sf, req.data, req.len);
+            if (req.waiter) xTaskNotifyGive(req.waiter);
             continue;
         }
 
@@ -368,12 +420,20 @@ static void rf_task_func(void* arg) {
 
 void radio_start(void) {
     // 队列与所有者标记必须在任务创建前就位：否则 adr_init 等启动期调用可能走"无所有者→inline"路径
-    g_req_hi = xQueueCreate(RADIO_REQ_HI_LEN, sizeof(radio_req_t*));
-    g_req_lo = xQueueCreate(RADIO_REQ_LO_LEN, sizeof(radio_req_t*));
+    // 队列元素 = 请求结构体本身（值拷贝），不是指针。
+    // 指针语义会在"调用方超时返回、栈帧销毁"后变成悬垂指针 → rf_task 写它 = use-after-free（实测崩溃）。
+    // 代价：每个队列槽 ~200B（radio_req_t 含 data[FRAME_MTU]），hi6+lo4 ≈ 2KB RAM。
+    g_req_hi = xQueueCreate(RADIO_REQ_HI_LEN, sizeof(radio_req_t));
+    g_req_lo = xQueueCreate(RADIO_REQ_LO_LEN, sizeof(radio_req_t));
     xTaskCreatePinnedToCore(rf_task_func, "rf", RF_TASK_STACK,
                             nullptr, RF_TASK_PRIO, &g_rf_task, RF_TASK_CORE);
     g_radio_owner = g_rf_task;   // 从此刻起：射频单所有者 = rf_task
 }
+
+int16_t radio_last_error(void)          { return g_last_err; }
+bool    radio_absent(void)              { return g_absent; }
+uint8_t radio_init_fail_count(void)     { return g_init_fails; }
+uint32_t radio_req_timeout_count(void)  { return g_req_timeout; }
 
 uint32_t radio_rx_drop_count(void)  { return g_rx_drop; }
 uint32_t radio_req_drop_count(void) { return g_req_drop; }
