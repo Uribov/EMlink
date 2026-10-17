@@ -16,3 +16,7 @@ design/logo-*.png
 
 # docs/references/ 下第三方文档原件（版权归原作者，只留本地、不随开源仓库发布）
 docs/references/*.pdf
+
+# 任务书（一次性过程稿）：不进仓库。源在 ~/EMlink-briefs/，仅在调用 OpenCode 时临时放入 _active.md
+docs/reviews/briefs/*.md
+!docs/reviews/briefs/README.md
