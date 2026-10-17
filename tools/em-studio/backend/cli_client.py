@@ -15,10 +15,11 @@ POLL_QUIET = 0.2
 class _Query:
     """一条需要收集输出的命令（如 get / set / save）。"""
 
-    def __init__(self, text, timeout, quiet):
+    def __init__(self, text, timeout, quiet, silent=False):
         self.text = text
         self.timeout = timeout
         self.quiet = quiet
+        self.silent = bool(silent)
         self.lines = []
         self.error = ""
         self.started = False
@@ -33,6 +34,7 @@ class CliClient:
         self._activity = threading.Event()
         self._expected = None
         self._capture = None
+        self._silent = False
         self._closed = False
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -55,22 +57,29 @@ class CliClient:
         self._queue.put(text)
         return True, ""
 
-    def query(self, text, timeout=2.0, quiet=0.25):
+    def query(self, text, timeout=2.0, quiet=0.25, silent=False):
         """串行执行一条命令，等回显后收集紧随其后的输出行。
 
         返回 (ok, lines, error)。超时也会把已经收到的行带回来，调用方可
         用部分结果做健壮解析。这条命令仍然走同一个队列，不会和普通发送并发。
+
+        silent=True：不把回显/输出写进前端输出队列，只把文本返回给调用方
+        （用于轮询 status）；串行、等回显、超时等逻辑与普通 query 完全一致。
         """
         text, error = self._check(text)
         if text is None:
             return False, [], error
         if self._closed:
             return False, [], "命令队列已关闭"
-        job = _Query(text, max(0.2, float(timeout)), max(0.05, float(quiet)))
+        job = _Query(text, max(0.2, float(timeout)), max(0.05, float(quiet)), silent)
         self._queue.put(job)
         if not job.done.wait(job.timeout * 2 + job.quiet + 5.0):
             return False, list(job.lines), "等待板子响应超时"
         return not job.error, list(job.lines), job.error
+
+    def is_silent(self):
+        """当前正在执行的 query 是否为静默模式（供输出队列跳过入队）。"""
+        return self._silent
 
     def on_rx_line(self, line):
         """匹配回显；回显之后的行进入当前 query 的输出缓冲。"""
@@ -137,6 +146,7 @@ class CliClient:
         self._activity.clear()
         self._expected = job.text
         self._capture = job
+        self._silent = job.silent
         job.started = False
         try:
             self._write((job.text + "\n").encode("utf-8"))
@@ -165,5 +175,6 @@ class CliClient:
     def _finish_query(self, job):
         self._expected = None
         self._capture = None
+        self._silent = False
         job.done.set()
         time.sleep(0.02)

@@ -8,7 +8,7 @@ import threading
 
 import webview
 
-from backend import params
+from backend import params, prober
 from backend.devices import list_devices
 from backend.serial_link import SerialLink
 
@@ -101,6 +101,20 @@ class Api:
         data = link.poll()
         data["led"] = link.led_state
         return self._ok(data)
+
+    def api_status(self, device_id):
+        link = self._get(device_id)
+        if link is None:
+            return self._err("设备不存在")
+        if link.status != "connected":
+            return self._err("设备未连接")
+        try:
+            data, note = prober.read_status(link)
+        except Exception as exc:
+            return self._err(f"读状态失败：{exc}")
+        if not data:
+            return self._err(note or "板子未返回状态")
+        return {"ok": True, "data": data, "error": note or ""}
 
     def api_get_config(self, device_id):
         link = self._get(device_id)

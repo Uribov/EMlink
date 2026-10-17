@@ -161,8 +161,11 @@ class SerialLink:
         if line.startswith("#led "):
             self.led_state = parse_led_line(line)
             return
-        self._append_line(line)
         self.cli.on_rx_line(line)
+        # 静默查询（轮询 status）：回显与输出只交给解析器，不进前端输出队列。
+        if self.cli.is_silent():
+            return
+        self._append_line(line)
 
     def _append_line(self, line):
         with self._lines_lock:

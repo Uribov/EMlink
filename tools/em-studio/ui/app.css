@@ -175,3 +175,51 @@ option{background:var(--bg);color:var(--text)}
   0%,   49.99%{ border-top-color:var(--tri-color); }
   50%,  100%  { border-top-color:transparent; }   /* 灭：透明（深色面板上等同不亮） */
 }
+
+/* ---- D3a：status 三层结构化状态卡（极致集成排版） ---- */
+.status-cards{
+  flex:0 0 auto;
+  display:flex;flex-direction:column;gap:8px;margin-bottom:10px;
+}
+.status-card{
+  min-width:0;border:1px solid var(--line);background:#0a0a0a;padding:7px 10px;
+}
+.status-card-head{
+  display:flex;align-items:center;gap:8px;margin-bottom:5px;
+  font-size:9px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);
+}
+.status-card-head:after{content:"";flex:1;height:1px;background:var(--line2)}
+.status-card-head .st i{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.status-card-head .st.warn i{background:#eab308}
+.status-card-head .st.bad i{background:var(--err)}
+.status-card-head .st.off i{background:var(--dim)}
+.status-layer{
+  font-size:inherit;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.status-stale{
+  margin-top:2px;font-size:10px;letter-spacing:.08em;color:var(--dim);
+}
+/* 指标网格：自适应多列，窄了自动换列 → 一屏塞下 */
+.status-items{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(172px,1fr));
+  gap:1px 14px;font-family:ui-monospace,Menlo,Consolas,monospace;
+  font-size:11px;line-height:1.5;
+}
+.status-item{
+  display:flex;align-items:baseline;justify-content:space-between;gap:8px;
+  min-width:0;overflow:hidden;
+}
+.status-item .sk{
+  flex:1 1 auto;min-width:0;font-size:11px;color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.status-item .sv{
+  flex:0 1 auto;min-width:0;max-width:58%;
+  font-family:inherit;font-size:11px;color:var(--text);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right;
+}
+.status-item .sv.ok{color:var(--ok)}
+.status-item .sv.warn{color:#eab308}
+.status-item .sv.err{color:var(--err)}
+/* 卡片再高也不能把原始终端挤没 */
+.panel-diag .output{min-height:120px}

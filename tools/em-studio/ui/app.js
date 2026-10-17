@@ -8,6 +8,7 @@
   const SF_MAX_BY_BW = { 125: 9, 250: 10, 500: 11 };
   const PARAM_KEYS = ['role', 'node_id', 'freq', 'sf', 'bw', 'cr', 'power', 'auto_wifi_s', 'crypto'];
   const LED_TICK_MS = 50;
+  const STATUS_POLL_MS = 2000;
 
   const state = {
     ports: [],
@@ -18,6 +19,8 @@
     bound: false,
     booted: false,
     polling: false,
+    statusPolling: false,
+    statusTimer: null,
   };
 
   function $(id) {
@@ -106,6 +109,196 @@
     out.scrollTop = out.scrollHeight;
   }
 
+  function statusLayerLevel(layer) {
+    let level = 'ok';
+    for (const item of (layer && layer.items) || []) {
+      if (item.level === 'err') return 'err';
+      if (item.level === 'warn') level = 'warn';
+    }
+    return level;
+  }
+
+  function statusDotClass(level) {
+    if (level === 'err') return 'st bad';
+    if (level === 'warn') return 'st warn';
+    return 'st';
+  }
+
+  function updateStatusItems(body, layerName, items) {
+    const existing = new Map();
+    for (const row of body.querySelectorAll('.status-item')) {
+      existing.set(row.dataset.key, row);
+    }
+
+    const seen = new Map();
+    const keep = new Set();
+    for (const item of items) {
+      const base = layerName + '|' + (item.label || '');
+      const count = seen.get(base) || 0;
+      seen.set(base, count + 1);
+      const key = base + '|' + count;
+      keep.add(key);
+
+      let row = existing.get(key);
+      if (!row) {
+        row = document.createElement('div');
+        row.className = 'status-item';
+        row.dataset.key = key;
+        const label = document.createElement('span');
+        label.className = 'sk';
+        const value = document.createElement('span');
+        value.className = 'sv';
+        row.appendChild(label);
+        row.appendChild(value);
+        body.appendChild(row);
+      }
+
+      const label = row.querySelector('.sk');
+      const value = row.querySelector('.sv');
+      const labelText = item.label || '';
+      const valueText = item.value === null || item.value === undefined ? '' : String(item.value);
+      if (label.textContent !== labelText) {
+        label.textContent = labelText;
+        label.title = labelText;
+      }
+      if (value.textContent !== valueText) {
+        value.textContent = valueText;
+        value.title = valueText;
+      }
+
+      const level = item.level === 'err' ? 'err' : item.level === 'warn' ? 'warn' : 'ok';
+      const valueClass = 'sv ' + level;
+      if (value.className !== valueClass) value.className = valueClass;
+    }
+
+    for (const [key, row] of existing) {
+      if (!keep.has(key)) row.remove();
+    }
+  }
+
+  function renderStatusCards(tab) {
+    const box = $('status-cards');
+    if (!box) return;
+    const data = tab && tab.statusData;
+    if (!data || !Array.isArray(data.layers) || data.layers.length === 0) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+
+    const existing = new Map();
+    for (const card of box.querySelectorAll('.status-card')) {
+      existing.set(card.dataset.layer, card);
+    }
+    const wanted = new Set();
+
+    for (const layer of data.layers) {
+      const layerName = layer && layer.name ? String(layer.name) : '';
+      wanted.add(layerName);
+      let card = existing.get(layerName);
+
+      if (!card) {
+        card = document.createElement('div');
+        card.className = 'status-card';
+        card.dataset.layer = layerName;
+
+        const head = document.createElement('div');
+        head.className = 'status-card-head';
+        const dot = document.createElement('span');
+        dot.className = 'st';
+        dot.appendChild(document.createElement('i'));
+        const name = document.createElement('span');
+        name.className = 'status-layer';
+        head.appendChild(dot);
+        head.appendChild(name);
+
+        const stale = document.createElement('div');
+        stale.className = 'status-stale';
+        stale.textContent = '更新失败';
+        stale.hidden = true;
+
+        const body = document.createElement('div');
+        body.className = 'status-items';
+
+        card.appendChild(head);
+        card.appendChild(stale);
+        card.appendChild(body);
+        box.appendChild(card);
+        existing.set(layerName, card);
+      }
+
+      const name = card.querySelector('.status-layer');
+      if (name.textContent !== layerName) name.textContent = layerName;
+
+      const dot = card.querySelector('.status-card-head .st');
+      const dotClass = statusDotClass(statusLayerLevel(layer));
+      if (dot.className !== dotClass) dot.className = dotClass;
+
+      const stale = card.querySelector('.status-stale');
+      const staleVisible = !!tab.statusStale;
+      if (stale.hidden === staleVisible) stale.hidden = !staleVisible;
+
+      updateStatusItems(
+        card.querySelector('.status-items'),
+        layerName,
+        (layer && layer.items) || []
+      );
+    }
+
+    for (const [layerName, card] of existing) {
+      if (!wanted.has(layerName)) card.remove();
+    }
+  }
+
+  async function pollStatus() {
+    const tab = activeTab();
+    if (!tab || tab.status !== 'connected') {
+      stopStatusPolling();
+      return;
+    }
+    if (state.statusPolling) return;
+
+    state.statusPolling = true;
+    const id = tab.id;
+    try {
+      const res = await callRaw('api_status', id);
+      if (!res || res.ok !== true) {
+        throw new Error((res && res.error) || '状态更新失败');
+      }
+      const current = state.tabs.get(id);
+      if (current) {
+        current.statusData = res.data;
+        current.statusStale = !!res.error;
+        current.statusError = res.error || '';
+      }
+    } catch (err) {
+      const current = state.tabs.get(id);
+      if (current) {
+        current.statusStale = true;
+        current.statusError = err.message;
+      }
+    } finally {
+      state.statusPolling = false;
+      const current = state.tabs.get(id);
+      if (current && current.id === state.activeId && current.status === 'connected') {
+        renderStatusCards(current);
+      }
+    }
+  }
+
+  function stopStatusPolling() {
+    if (state.statusTimer) {
+      clearInterval(state.statusTimer);
+      state.statusTimer = null;
+    }
+  }
+
+  function startStatusPolling() {
+    if (state.statusTimer) return;
+    state.statusTimer = setInterval(pollStatus, STATUS_POLL_MS);
+    pollStatus();
+  }
+
   function renderTabs() {
     const bar = $('tabs');
     bar.innerHTML = '';
@@ -176,6 +369,9 @@
     if (!('config' in tab)) tab.config = null;
     if (!tab.led || typeof tab.led !== 'object') tab.led = {};
     if (!('state' in tab.led)) tab.led.state = null;
+    if (!('statusData' in tab)) tab.statusData = null;
+    if (typeof tab.statusStale !== 'boolean') tab.statusStale = false;
+    if (typeof tab.statusError !== 'string') tab.statusError = '';
   }
 
   function sfMaxForBw(bw) {
@@ -617,6 +813,9 @@
       setDiagEnabled(false);
       setParamsEnabled(false);
       setParamsNote('');
+      stopStatusPolling();
+      const cards = $('status-cards');
+      if (cards) cards.hidden = true;
       return;
     }
 
@@ -639,6 +838,15 @@
     setDiagEnabled(tab.status === 'connected');
     setParamsEnabled(tab.status === 'connected' && !tab.configLoading);
     updateLedTriangle();
+
+    if (tab.status === 'connected') {
+      renderStatusCards(tab);
+      startStatusPolling();
+    } else {
+      stopStatusPolling();
+      const cards = $('status-cards');
+      if (cards) cards.hidden = true;
+    }
   }
 
   function renderEmptyState() {
@@ -723,6 +931,9 @@
         configLoaded: false,
         configLoading: false,
         changed: new Set(),
+        statusData: null,
+        statusStale: false,
+        statusError: '',
       };
       state.tabs.set(id, tab);
       state.order.push(id);
@@ -730,6 +941,9 @@
       tab.status = 'connected';
       tab.note = '';
       tab.configLoaded = false;
+      tab.statusData = null;
+      tab.statusStale = false;
+      tab.statusError = '';
     }
     ensureTabState(tab);
     tab.led.state = null;
