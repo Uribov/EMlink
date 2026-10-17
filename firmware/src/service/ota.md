@@ -21,10 +21,11 @@
 | SSID | `EMlink-<node_id>`（可用 `wifi_ssid` 覆盖） |
 | IP | 192.168.4.1 |
 | 密码 | 默认无密码（`wifi_pass` 可设） |
-| 网页功能 | 改参数 / 设密钥 / 刷固件(Update.h) / 恢复出厂 / 退出维护模式 |
+| 网页功能 | 改参数（含 **节点号 / 角色 / 自动维护延时**，S6）/ 设密钥 / 刷固件(Update.h) / 恢复出厂 / 退出维护模式；**「保存并重启」**按钮在同一表单里提交 `reboot=1`，保存成功 → 回执 → `ESP.restart()` |
 | 网页风格 | 学 ELRS：深色底、大标题、纯黑白灰、1px 发丝线、零圆角、等边三角网格标记 |
-| 触发 | CLI `wifi`；退出 `wifi off` 或网页「退出」按钮 |
+| 触发 | CLI `wifi`；退出 `wifi off` 或网页「退出」按钮；**上电满 `auto_wifi_s`（默认 30s，15–60）且无链路活动 → 自动进入**（S5） |
 | 自动退出 | **空闲 5 分钟无客户端** 或 **30 分钟硬上限**（刷固件中不生效）（P1-5） |
+| 状态灯 | 维护模式期间 GPIO48 跑**彩虹灯**：**21 档色表（7 基色 + 每两档之间 2 个插值色）+ 档间连续插值**，**2.5 秒一轮**，亮度 60（S9–S11）。**S14 起 LED 由独立任务驱动**（20ms，core1），见 `stats.cpp::stats_led_tick()` + `led_states.md` |
 
 ## 关键设计：WiFi 与 LoRa 二选一
 - WiFi 栈默认占 core0，而射频收发任务也全在 core0，同时开会抢 CPU
@@ -42,7 +43,7 @@
 - 代价：若射频起不来是"配置写错"而非固件问题，回滚也救不了（要连 USB 用 CLI 改回参数）
 
 ## 对外接口
-见 `ota.h`：`ota_start / ota_stop / ota_active`（WebServer 轮询在 ota_task 内部，无对外单步接口）+ `ota_boot_confirm_tick`（main 的 loop 每轮调；开机自检）。
+见 `ota.h`：`ota_start / ota_stop / ota_active`（WebServer 轮询在 ota_task 内部，无对外单步接口）+ `ota_boot_confirm_tick`（main 的 loop 每轮调；开机自检）+ `ota_auto_tick`（main 的 loop 每轮调；上电自动进维护模式，S5/2026-10-17）。
 
 ## 验收
 - CLI `wifi` → 手机搜到 `EMlink-<id>` 热点 → 浏览器 192.168.4.1 打开配置页
@@ -134,6 +135,20 @@
 - 进（`ota_start`）：`radio_suspend()` → `WiFi.mode(WIFI_AP)` → `softAP(ssid[, pass])` → `softAPConfig(192.168.4.1)` → `WebServer` 起路由 → 起 ota_task；同时记录 `g_ap_start_ms = g_last_client_ms = millis()`、`g_updating=false`
 - 出（`ota_stop`）：**只置 `g_active=false`**，不直接删任务/服务；ota_task 循环检测到后自行清理并 `vTaskDelete(nullptr)` 删自己。原因：`handle_exit` 在 ota_task 上下文里跑，直接 `vTaskDelete(g_ota_task)` 会删自己导致后续 `radio_resume()` 永不执行 + 内存泄漏
 - **自动退出（P1-5）**：ota_task 每轮判 `softAPgetStationNum()`，有客户端就刷新 `g_last_client_ms`；`!g_updating` 时若「空闲 > 5 分钟」或「开启 > 30 分钟」→ `ota_stop()`（任务内部调用只置标志，本任务照常走自清理路径）
+
+### 上电自动进入维护模式（S5，2026-10-17，条件式）
+
+需求（用户定，学 ELRS）：**没有电脑/USB 时也能靠 WiFi 进门** —— 上电后自动进维护模式，秒数可配（`auto_wifi_s`，默认 30，**钳制 15–60，不能关闭**）。
+
+- 实现：`ota_auto_tick()`（`main.cpp` 的 `loop()` 每轮调）
+- **判据（条件式）**：上电满 `auto_wifi_s` 秒 **且本次开机空口无任何活动** —— 四个现成信号全为空才算"无活动"：
+  1. `mesh_rx_count()`（收到过有效帧）
+  2. `mesh_drop_crc_count()`（收到过 CRC 错帧 → 空口确实有人在发）
+  3. `route_neighbors()`（邻居表非空）
+  4. `mav_router_heartbeat_ok()`（有 MAVLink 心跳 → 机载时飞控连着，不该开 AP）
+- **只做一次**：处理过（进或取消）就置 `g_auto_done`，用户主动 `wifi off` 退出后不会被再拉进去
+- 取延时**不看** `nvs_cfg_load()` 的返回值（那个返回值只表示 `role` 是否已设；未配置角色恰恰最需要自动进维护模式 —— S5b 修过这一处）
+- 上板实测（无 E220）：`[ota] 上电 30s 无任何链路活动 → 自动进入 WiFi 维护模式` → `[ota] AP EMlink-187 @ 192.168.4.1`
 
 ### OTA 回滚确认（P1-5）
 `ota_boot_confirm_tick()`：`g_boot_confirmed` 保护只做一次；`millis() < 10000` 直接返回；`!radio_is_ready()` 直接返回（不确认）；否则调 `esp_ota_mark_app_valid_cancel_rollback()` 并按返回值打日志（`ESP_OK` / `ESP_ERR_NOT_SUPPORTED` 平台未启用回滚 / 其它错误码）。

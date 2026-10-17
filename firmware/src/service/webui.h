@@ -52,6 +52,10 @@ static const char WUI_HEAD[] PROGMEM =
 "font-family:ui-monospace,Menlo,Consolas,monospace}"
 "input:focus,select:focus{outline:none;border-color:var(--text)}"
 "input::placeholder{color:var(--dim)}"
+"input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:1px;background:var(--line);border:0;outline:none;margin:14px 0}"
+"input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;background:var(--text);border:0;border-radius:0;cursor:pointer}"
+"input[type=range]::-moz-range-thumb{width:14px;height:14px;background:var(--text);border:0;border-radius:0;cursor:pointer}"
+"input[type=range]::-moz-range-track{height:1px;background:var(--line);border:0}"
 ".file{position:relative;display:flex;align-items:center;gap:12px;"
 "border:1px dashed var(--line);padding:16px;cursor:pointer}"
 ".file input{position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer}"
@@ -68,7 +72,7 @@ static const char WUI_HEAD[] PROGMEM =
 ".btn.primary:hover{background:#fff}"
 ".btn.ghost{color:var(--muted)}.btn.ghost:hover{color:var(--text)}"
 ".btn.danger{color:var(--err);border-color:#3a2020}.btn.danger:hover{border-color:var(--err)}"
-".row{display:flex;gap:12px}.row .btn{flex:1;width:auto}"
+".row{display:flex;gap:12px}.row .btn{flex:1;width:auto}.row select{flex:1;width:auto}"
 ".note{margin-top:10px;font-size:11px;color:var(--dim)}"
 ".err{margin-top:10px;font-size:12px;color:var(--err)}"
 ".msg{font-size:14px;color:var(--muted)}"
@@ -106,8 +110,11 @@ static const char WUI_RADIO_A[] PROGMEM =
 "<section><h2>射频参数</h2><form action=\"/set\" method=\"get\"><div class=\"grid\">";
 
 static const char WUI_RADIO_B[] PROGMEM =
-"</div><button class=\"btn primary\" type=\"submit\">保存参数</button></form>"
-"<div class=\"note\">写入后重启生效</div></section>";
+"</div><div class=\"row\">"
+"<button class=\"btn primary\" type=\"submit\">保存参数</button>"
+"<button class=\"btn ghost\" type=\"submit\" name=\"reboot\" value=\"1\">保存并重启</button>"
+"</div></form>"
+"<div class=\"note\">写入后重启生效（节点号 / 角色 / 自动维护延时都需要重启）</div></section>";
 
 // ---- 段 4：加密密钥区（整段静态；密钥永不回显，只留占位符）----
 static const char WUI_CRYPTO[] PROGMEM =

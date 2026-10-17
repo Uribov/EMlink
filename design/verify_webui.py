@@ -118,16 +118,34 @@ def main() -> int:
     status = ('<span>节点 <b>01</b></span><span>角色 <b>air</b></span>'
               '<span class="st"><i></i>加密已启用</span>')
     fields = (
-        '<div><label for="f">频率 MHz</label>'
-        '<input id="f" name="freq" type="text" value="915.0"></div>'
+        '<div><label>频率配置</label><div class="row">'
+        '<select id="fi" name="freq_int">'
+        + ''.join(f'<option{" selected" if v == 915 else ""}>{v}</option>' for v in range(862, 931))
+        + '</select><select id="ff" name="freq_frac">'
+        + ''.join(f'<option value="{i * 0.05:.2f}"{" selected" if i == 0 else ""}>{i * 0.05:.2f}</option>'
+                  for i in range(20))
+        + '</select></div></div>'
         '<div><label for="sf">扩频因子</label><select id="sf" name="sf">'
         + ''.join(f'<option{" selected" if v == 7 else ""}>{v}</option>' for v in (7, 8, 9, 10, 11))
         + '</select></div><div><label for="bw">带宽 kHz</label><select id="bw" name="bw">'
         + ''.join(f'<option{" selected" if v == 125 else ""}>{v}</option>' for v in (125, 250, 500))
         + '</select></div><div><label for="cr">编码率</label><select id="cr" name="cr">'
         + ''.join(f'<option{" selected" if v == 5 else ""}>{v}</option>' for v in (5, 6, 7, 8))
-        + '</select></div><div class="wide"><label for="pw">发射功率 dBm</label>'
-          '<input id="pw" name="power" type="text" value="20"></div>')
+        + '</select></div><div><label for="pw">发射功率 dBm</label><select id="pw" name="power">'
+        + ''.join(f'<option{" selected" if v == 20 else ""}>{v}</option>' for v in (10, 14, 17, 20, 22))
+        + '</select></div>'
+        '<div><label for="nid">节点号 <span id="nidv">1</span></label>'
+        '<input id="nid" name="node_id" type="range" min="1" max="254" step="1" value="1"'
+        ' oninput="document.getElementById(\'nidv\').textContent=this.value"></div>'
+        '<div><label for="rl">角色</label><select id="rl" name="role">'
+        '<option value="">未配置</option>'
+        '<option value="air" selected>机载 AIR</option>'
+        '<option value="gcs">地面站 GCS</option>'
+        '<option value="relay">中继 RELAY</option>'
+        '</select></div>'
+        '<div class="wide"><label for="aws">上电自动进维护模式 <span id="awsv">30</span> 秒（15–60）</label>'
+        '<input id="aws" name="auto_wifi_s" type="range" min="15" max="60" step="1" value="30"'
+        ' oninput="document.getElementById(\'awsv\').textContent=this.value"></div>')
 
     main_page = (S['WUI_HEAD'] + S['WUI_SUB_OPEN'] + status + S['WUI_SUB_END']
                  + S['WUI_RADIO_A'] + fields + S['WUI_RADIO_B']
@@ -160,7 +178,9 @@ def main() -> int:
     must = ['id="k"', 'name="key"', 'action="/set"', 'action="/crypto"', 'action="/update"',
             'action="/exit"', 'action="/factory"', 'name="firmware"', 'name="off"',
             '请输入正确的格式', '恢复出厂默认',
-            'enctype="multipart/form-data"', 'id="kerr"']
+            'enctype="multipart/form-data"', 'id="kerr"',
+            'name="freq_int"', 'name="freq_frac"', 'name="power"', 'name="node_id"',
+            'name="role"', 'name="auto_wifi_s"', 'type="range"']
     missing = [f for f in must if f not in main_page]
     if missing:
         ok = False

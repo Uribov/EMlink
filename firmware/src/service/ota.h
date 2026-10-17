@@ -21,3 +21,7 @@ bool ota_active();
 // 开机自检：系统启动且射频就绪后调用一次 → 向 bootloader 确认"本固件可用"（取消回滚）
 // 由 main.cpp 的 loop() 每轮调用（内部自带"只做一次"保护）
 void ota_boot_confirm_tick(void);
+
+// 上电自动进入维护模式（条件式）：满 auto_wifi_s 秒且本次开机空口无任何活动 → ota_start()
+// 只自动进入一次；有链路活动则取消（保护机载场景）。由 main 的 loop 每轮调，开销可忽略。
+void ota_auto_tick(void);

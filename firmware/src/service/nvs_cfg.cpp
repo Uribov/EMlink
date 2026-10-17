@@ -28,6 +28,7 @@ void nvs_cfg_factory(cfg_t* out) {
     out->retries        = 3;
     out->beacon_s       = 1;
     out->failsafe_s     = 3;
+    out->auto_wifi_s    = 30;       // 上电 30s 无链路 → 自动进 WiFi 维护模式
     memset(out->name, 0, sizeof(out->name));
     memset(out->crypto_key, 0, sizeof(out->crypto_key));
     memset(out->wifi_ssid, 0, sizeof(out->wifi_ssid));
@@ -67,6 +68,9 @@ bool nvs_cfg_load(cfg_t* out) {
     out->retries        = p.getUChar("retries", 3);
     out->beacon_s       = p.getUShort("beacon_s", 1);
     out->failsafe_s     = p.getUShort("failsafe_s", 3);
+    out->auto_wifi_s    = p.getUShort("auto_wifi_s", 30);
+    if (out->auto_wifi_s < 15) out->auto_wifi_s = 15;   // 旧值/异常值兜底（钳制，不是拒绝）
+    if (out->auto_wifi_s > 60) out->auto_wifi_s = 60;
     p.getString("name", out->name, sizeof(out->name));
     memset(out->crypto_key, 0, sizeof(out->crypto_key));   // 默认关闭
     if (p.getBytesLength("crypto_key") == 16) p.getBytes("crypto_key", out->crypto_key, 16);
@@ -97,6 +101,7 @@ bool nvs_cfg_save(const cfg_t* in) {
     p.putUChar("retries", in->retries);
     p.putUShort("beacon_s", in->beacon_s);
     p.putUShort("failsafe_s", in->failsafe_s);
+    p.putUShort("auto_wifi_s", in->auto_wifi_s);
     p.putString("name", in->name);
     p.putBytes("crypto_key", in->crypto_key, 16);
     p.putString("wifi_ssid", in->wifi_ssid);
@@ -205,6 +210,10 @@ bool nvs_cfg_value_ok(const char* key, const char* val) {
     if (strcmp(key, "failsafe_s") == 0) {
         return parse_long(val, &l) && l >= 1 && l <= 60;
     }
+    if (strcmp(key, "auto_wifi_s") == 0) {
+        // 特殊：不拒绝越界值，交给 nvs_cfg_set 钳制到 15~60（用户要求"小于强制15、超过强制60"）
+        return parse_long(val, &l);
+    }
     if (strcmp(key, "name") == 0) {
         size_t n = strlen(val);
         return n >= 1 && n <= 15;
@@ -296,6 +305,11 @@ bool nvs_cfg_set(const char* key, const char* val) {
         p.putUShort("beacon_s", (uint16_t)atoi(val));
     } else if (strcmp(key, "failsafe_s") == 0) {
         p.putUShort("failsafe_s", (uint16_t)atoi(val));
+    } else if (strcmp(key, "auto_wifi_s") == 0) {
+        long l = atol(val);
+        if (l < 15) l = 15;          // 钳制：用户定"小于 15 强制 15、超过 60 强制 60"
+        if (l > 60) l = 60;
+        p.putUShort("auto_wifi_s", (uint16_t)l);
     } else if (strcmp(key, "name") == 0) {
         p.putString("name", val);
     } else {
@@ -342,6 +356,8 @@ bool nvs_cfg_get(const char* key, char* val, size_t len) {
         snprintf(val, len, "%u", p.getUShort("beacon_s", 1));
     } else if (strcmp(key, "failsafe_s") == 0) {
         snprintf(val, len, "%u", p.getUShort("failsafe_s", 3));
+    } else if (strcmp(key, "auto_wifi_s") == 0) {
+        snprintf(val, len, "%u", p.getUShort("auto_wifi_s", 30));
     } else if (strcmp(key, "name") == 0) {
         p.getString("name", val, len);
     } else {

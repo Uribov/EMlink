@@ -26,6 +26,7 @@ struct cfg_t {
     uint8_t  retries;         // 3
     uint16_t beacon_s;        // 1
     uint16_t failsafe_s;      // 3
+    uint16_t auto_wifi_s;     // 上电后多少秒自动进 WiFi 维护模式（15~60，钳制；不可关闭）
     char     name[16];
     uint8_t  crypto_key[16];  // AES-128 密钥（全 0 = 加密关闭）
     char     wifi_ssid[32];   // WiFi AP 名（空 = 用 EMlink-<node_id>）

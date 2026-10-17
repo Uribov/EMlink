@@ -13,6 +13,8 @@
 #include "../drivers/radio.h"
 #include "../service/role_state.h"
 #include "../net/mesh.h"
+#include "../net/route.h"
+#include "../service/mav_router.h"
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Update.h>
@@ -36,9 +38,17 @@ static uint32_t g_last_client_ms = 0;   // 最后一次"有客户端"的时刻
 static bool     g_updating = false;     // 正在上传固件（期间不自动退出）
 static bool     g_boot_confirmed = false;  // 本次开机是否已确认固件
 
-// 整页 String 预留容量（还原实测主页 9276 字节，留 ~1KB 余量；
+// 整页 String 预留容量（选项化后主页约 12.4KB，留 ~4KB 余量；
 // 一次分配，避免反复 realloc 造成堆碎片）
-#define WUI_RESERVE 10240
+#define WUI_RESERVE 16384
+
+// 字符串 → 角色号（网页提交用；nvs_cfg 的 role_from_str 是内部 static，不能直接调）
+static uint8_t role_from_name(const char* s) {
+    if (s && strcmp(s, "air") == 0)   return ROLE_AIR;
+    if (s && strcmp(s, "gcs") == 0)   return ROLE_GCS;
+    if (s && strcmp(s, "relay") == 0) return ROLE_RELAY;
+    return ROLE_UNSET;
+}
 
 // 角色号 → 字符串（网页显示用；与 nvs_cfg 内部约定一致）
 static const char* role_name(uint8_t r) {
@@ -85,26 +95,73 @@ static void add_radio_fields(String& p, const cfg_t& c) {
     static const int SFV[] = {7, 8, 9, 10, 11};
     static const int BWV[] = {125, 250, 500};
     static const int CRV[] = {5, 6, 7, 8};
+    static const int PWV[] = {10, 14, 17, 20, 22};   // E220 模块最大 22dBm；芯片范围 -9~22
     char b[288];
 
-    snprintf(b, sizeof(b),
-             "<div><label for=\"f\">频率 MHz</label>"
-             "<input id=\"f\" name=\"freq\" type=\"text\" value=\"%.1f\"></div>"
-             "<div><label for=\"sf\">扩频因子</label><select id=\"sf\" name=\"sf\">",
-             (double)c.freq);
-    p += b;
-    add_opts(p, SFV, 5, c.sf);
+    // 频率：整数 + 小数(0.05 步进)，均为下拉（不再手输）
+    int fi = (int)c.freq;
+    int ff = (int)((c.freq - (float)fi) * 100.0f + 0.5f);   // 百分位
+    if (ff % 5) ff -= ff % 5;                                 // 归到 0.05 步进
+    if (ff > 95) ff = 95;
 
+    p += "<div><label>频率配置</label><div class=\"row\">"
+         "<select id=\"fi\" name=\"freq_int\">";
+    for (int v = (int)RADIO_FREQ_MIN_MHZ; v <= (int)RADIO_FREQ_MAX_MHZ; v++) {
+        snprintf(b, sizeof(b), "<option%s>%d</option>", (v == fi) ? " selected" : "", v);
+        p += b;
+    }
+    p += "</select><select id=\"ff\" name=\"freq_frac\">";
+    for (int i = 0; i < 20; i++) {
+        snprintf(b, sizeof(b), "<option value=\"%.2f\"%s>%.2f</option>",
+                 i * 0.05, (i * 5 == ff) ? " selected" : "", i * 0.05);
+        p += b;
+    }
+    p += "</select></div></div>";
+
+    // 扩频因子 / 带宽 / 编码率（下拉，保持原样）
+    p += "<div><label for=\"sf\">扩频因子</label><select id=\"sf\" name=\"sf\">";
+    add_opts(p, SFV, 5, c.sf);
     p += "</select></div><div><label for=\"bw\">带宽 kHz</label><select id=\"bw\" name=\"bw\">";
     add_opts(p, BWV, 3, c.bw);
-
     p += "</select></div><div><label for=\"cr\">编码率</label><select id=\"cr\" name=\"cr\">";
     add_opts(p, CRV, 4, c.cr);
+    p += "</select></div>";
 
+    // 发射功率：下拉
+    p += "<div><label for=\"pw\">发射功率 dBm</label><select id=\"pw\" name=\"power\">";
+    add_opts(p, PWV, 5, c.power);
+    p += "</select></div>";
+
+    // 节点号：滑块（实时显示）
+    unsigned nid = (unsigned)(c.node_id ? c.node_id : g_node_id);
     snprintf(b, sizeof(b),
-             "</select></div><div class=\"wide\"><label for=\"pw\">发射功率 dBm</label>"
-             "<input id=\"pw\" name=\"power\" type=\"text\" value=\"%d\"></div>",
-             (int)c.power);
+             "<div><label for=\"nid\">节点号 <span id=\"nidv\">%u</span></label>"
+             "<input id=\"nid\" name=\"node_id\" type=\"range\" min=\"1\" max=\"254\" step=\"1\" value=\"%u\""
+             " oninput=\"document.getElementById('nidv').textContent=this.value\"></div>",
+             nid, nid);
+    p += b;
+
+    // 角色（下拉；空串 = 未配置）——保持原样
+    {
+        static const char* R_V[3] = {"air", "gcs", "relay"};
+        static const char* R_L[3] = {"机载 AIR", "地面站 GCS", "中继 RELAY"};
+        p += "<div><label for=\"rl\">角色</label><select id=\"rl\" name=\"role\">";
+        p += (c.role == ROLE_UNSET) ? "<option value=\"\" selected>未配置</option>"
+                                    : "<option value=\"\">未配置</option>";
+        for (int i = 0; i < 3; i++) {
+            snprintf(b, sizeof(b), "<option value=\"%s\"%s>%s</option>",
+                     R_V[i], (c.role == (uint8_t)(i + 1)) ? " selected" : "", R_L[i]);
+            p += b;
+        }
+        p += "</select></div>";
+    }
+
+    // 上电自动进维护模式：滑块（实时显示）
+    snprintf(b, sizeof(b),
+             "<div class=\"wide\"><label for=\"aws\">上电自动进维护模式 <span id=\"awsv\">%u</span> 秒（15–60）</label>"
+             "<input id=\"aws\" name=\"auto_wifi_s\" type=\"range\" min=\"15\" max=\"60\" step=\"1\" value=\"%u\""
+             " oninput=\"document.getElementById('awsv').textContent=this.value\"></div>",
+             (unsigned)c.auto_wifi_s, (unsigned)c.auto_wifi_s);
     p += b;
 }
 
@@ -154,27 +211,108 @@ static void handle_root() {
     send_page(s, p);
 }
 
+// 去掉首尾空白（空格/制表/CR/LF）：手机输入法与复制粘贴常带，会让"整串校验"误判非法
+static String trim_ws(String s) {
+    int b = 0;
+    int e = (int)s.length();
+    while (b < e && isspace((unsigned char)s[b])) b++;
+    while (e > b && isspace((unsigned char)s[e - 1])) e--;
+    return s.substring(b, e);
+}
+
 // ---- 改参数 /set?freq=915.0&sf=7&bw=125&cr=5&power=20 ----
 static void handle_set() {
     WebServer& s = *g_server;
     cfg_t c;
     nvs_cfg_load(&c);
 
+    // 诊断：把本次收到的全部参数打到串口（哪一项坏了一看便知）
+    Serial.printf("[web] /set 收到 %d 个参数：\n", s.args());
+    for (int i = 0; i < s.args(); i++) {
+        Serial.printf("[web]   %s='%s'\n", s.argName(i).c_str(), s.arg(i).c_str());
+    }
+
     // 只接受合法值：全部经集中校验（与 CLI / 远程 FRAME_CFG 同一套规则），
     // 有一个非法就整表拒绝，不留半套参数被写进 NVS（比如 freq=0 会让射频彻底收不到）
     bool bad = false;
-    if (s.hasArg("freq"))  { const char* v = s.arg("freq").c_str();  if (nvs_cfg_value_ok("freq", v))  c.freq  = (float)atof(v); else bad = true; }
-    if (s.hasArg("sf"))    { const char* v = s.arg("sf").c_str();    if (nvs_cfg_value_ok("sf", v))    c.sf    = (uint8_t)atoi(v); else bad = true; }
-    if (s.hasArg("bw"))    { const char* v = s.arg("bw").c_str();    if (nvs_cfg_value_ok("bw", v))    c.bw    = (uint8_t)atoi(v); else bad = true; }
-    if (s.hasArg("cr"))    { const char* v = s.arg("cr").c_str();    if (nvs_cfg_value_ok("cr", v))    c.cr    = (uint8_t)atoi(v); else bad = true; }
-    if (s.hasArg("power")) { const char* v = s.arg("power").c_str(); if (nvs_cfg_value_ok("power", v)) c.power = (int8_t)atoi(v); else bad = true; }
+    String bad_key, bad_val;
+    auto mark_bad = [&](const char* k, const char* v) { bad = true; bad_key = k; bad_val = v; };
+    if (s.hasArg("freq_int") && s.hasArg("freq_frac")) {
+        String vi = trim_ws(s.arg("freq_int"));
+        String vf = trim_ws(s.arg("freq_frac"));
+        double f = atof(vi.c_str()) + atof(vf.c_str());
+        char fb[16];
+        snprintf(fb, sizeof(fb), "%.2f", f);
+        if (nvs_cfg_value_ok("freq", fb)) c.freq = (float)f;
+        else mark_bad("freq_int+freq_frac", fb);
+    }
+    if (s.hasArg("sf")) {
+        String vs = trim_ws(s.arg("sf"));
+        const char* v = vs.c_str();
+        if (nvs_cfg_value_ok("sf", v)) c.sf = (uint8_t)atoi(v);
+        else mark_bad("sf", v);
+    }
+    if (s.hasArg("bw")) {
+        String vs = trim_ws(s.arg("bw"));
+        const char* v = vs.c_str();
+        if (nvs_cfg_value_ok("bw", v)) c.bw = (uint8_t)atoi(v);
+        else mark_bad("bw", v);
+    }
+    if (s.hasArg("cr")) {
+        String vs = trim_ws(s.arg("cr"));
+        const char* v = vs.c_str();
+        if (nvs_cfg_value_ok("cr", v)) c.cr = (uint8_t)atoi(v);
+        else mark_bad("cr", v);
+    }
+    if (s.hasArg("power")) {
+        String vs = trim_ws(s.arg("power"));
+        const char* v = vs.c_str();
+        if (nvs_cfg_value_ok("power", v)) c.power = (int8_t)atoi(v);
+        else mark_bad("power", v);
+    }
 
-    if (bad) { send_done(s, true, "请输入正确的格式"); return; }
+    // 节点号 / 角色 / 自动维护延时（S6）——同样走集中校验，非法整表拒绝
+    if (s.hasArg("node_id")) {
+        String vs = trim_ws(s.arg("node_id"));
+        const char* v = vs.c_str();
+        if (nvs_cfg_value_ok("node_id", v)) c.node_id = (uint8_t)atoi(v);
+        else mark_bad("node_id", v);
+    }
+    if (s.hasArg("role")) {
+        String vs = trim_ws(s.arg("role"));
+        const char* v = vs.c_str();
+        if (*v == '\0')                       c.role = ROLE_UNSET;   // 空 = 未配置（允许回退）
+        else if (nvs_cfg_value_ok("role", v)) c.role = role_from_name(v);
+        else                                  mark_bad("role", v);
+    }
+    if (s.hasArg("auto_wifi_s")) {
+        String vs = trim_ws(s.arg("auto_wifi_s"));
+        const char* v = vs.c_str();
+        if (nvs_cfg_value_ok("auto_wifi_s", v)) {       // 与 nvs_cfg_set 一致地"钳制"
+            long l = atol(v);
+            if (l < 15) l = 15;
+            if (l > 60) l = 60;
+            c.auto_wifi_s = (uint16_t)l;
+        } else mark_bad("auto_wifi_s", v);
+    }
+    bool do_reboot = s.hasArg("reboot");
+
+    if (bad) {
+        String m = String("格式不正确：") + bad_key + " = \"" + bad_val + "\"";
+        Serial.printf("[web] 拒绝保存：%s\n", m.c_str());
+        send_done(s, true, m.c_str());
+        return;
+    }
     if (!nvs_cfg_pair_ok(c.sf, c.bw)) {
         send_done(s, true, "SF 与带宽不匹配：本机射频芯片 LLCC68 要求 BW125→SF≤9、BW250→≤10、BW500→≤11。");
         return;
     }
     if (!nvs_cfg_save(&c)) { send_done(s, true, "写入失败：NVS 保存出错。"); return; }
+    if (do_reboot) {
+        send_done(s, false, "已保存，正在重启…（约 3 秒后本页会断开，可重新连 WiFi）");
+        delay(300);
+        ESP.restart();
+    }
     send_done(s, false, "参数已保存，重启后生效。");
 }
 
@@ -281,6 +419,40 @@ static void ota_task_func(void* arg) {
     g_ota_task = nullptr;
     Serial.println("[ota] 已退出维护模式，LoRa 恢复");
     vTaskDelete(nullptr);   // 删自己
+}
+
+// ---- 上电自动进入维护模式（条件式，用户 2026-10-17 定）----
+// 判据："本次开机以来空口上没有任何活动"。用现成信号，不新增计数：
+//   mesh_rx_count()       —— 收到过有效帧
+//   mesh_drop_crc_count() —— 收到过 CRC 错的帧（说明空口上确实有人在发）
+//   route_neighbors()     —— 邻居表非空
+//   mav_router_heartbeat_ok() —— 有 MAVLink 心跳（机载时飞控连着，不该开 AP）
+static bool g_auto_done = false;   // 本次开机是否已处理过（自动进入只做一次）
+
+void ota_auto_tick(void) {
+    if (g_auto_done || g_active) return;
+
+    cfg_t c;
+    uint16_t delay_s = 30;
+    // 注意：nvs_cfg_load() 的返回值表示"role 是否已设置"，与这里的延时无关 ——
+    // 未配置角色正是最需要自动进维护模式的场景，所以不能拿返回值当条件。
+    (void)nvs_cfg_load(&c);
+    if (c.auto_wifi_s >= 15 && c.auto_wifi_s <= 60) delay_s = c.auto_wifi_s;
+
+    if (millis() < (uint32_t)delay_s * 1000u) return;
+
+    neighbor_t nb[1];
+    bool activity = (mesh_rx_count() > 0) || (mesh_drop_crc_count() > 0)
+                 || (route_neighbors(nb, 1) > 0)
+                 || mav_router_heartbeat_ok();
+
+    g_auto_done = true;            // 无论结果都只处理一次
+    if (activity) {
+        Serial.println("[ota] 上电后有链路活动 → 不自动进入 WiFi 维护模式");
+        return;
+    }
+    Serial.printf("[ota] 上电 %us 无任何链路活动 → 自动进入 WiFi 维护模式\n", (unsigned)delay_s);
+    ota_start();
 }
 
 void ota_start() {
