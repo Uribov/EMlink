@@ -8,9 +8,33 @@ import threading
 
 import webview
 
-from backend import params, prober
+from backend import mav_raw, params, prober
 from backend.devices import list_devices
 from backend.serial_link import SerialLink
+
+
+def _int_arg(value, name, low, high):
+    try:
+        number = int(str(value).strip())
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} 必须是整数")
+    if number < low or number > high:
+        raise ValueError(f"{name} 必须在 {low}..{high}")
+    return number
+
+
+def _payload_bytes(text, hex_mode):
+    raw = str(text or "")
+    if not hex_mode:
+        return raw.encode("utf-8")
+    cleaned = raw.replace("0x", "").replace("0X", "")
+    cleaned = "".join(ch for ch in cleaned if ch not in " \t\r\n,;:_-")
+    if len(cleaned) % 2:
+        raise ValueError("hex payload 长度必须是偶数")
+    try:
+        return bytes.fromhex(cleaned)
+    except ValueError:
+        raise ValueError("hex payload 含非法字符")
 
 
 class Api:
@@ -93,6 +117,64 @@ class Api:
         if not ok:
             return self._err(message)
         return self._ok({"sent": True})
+
+    def api_set_mode(self, device_id, mode):
+        link = self._get(device_id)
+        if link is None:
+            return self._err("设备不存在")
+        mode = str(mode or "")
+        if mode not in ("cli", "mavlink"):
+            return self._err("模式必须是 cli 或 mavlink")
+        link.set_mode(mode)
+        return self._ok({"mode": link.mode})
+
+    def api_send_frame(
+        self,
+        device_id,
+        payload,
+        msgid,
+        sysid=255,
+        compid=0,
+        target_sysid=0,
+        hex_mode=False,
+    ):
+        link = self._get(device_id)
+        if link is None:
+            return self._err("设备不存在")
+        if link.status != "connected":
+            return self._err("设备未连接")
+        try:
+            msgid = _int_arg(msgid, "msgid", 0, 0xFFFFFF)
+            sysid = _int_arg(sysid, "sysid", 0, 0xFF)
+            compid = _int_arg(compid, "compid", 0, 0xFF)
+            target = _int_arg(target_sysid, "target_sysid", 0, 0xFF)
+            data = _payload_bytes(payload, bool(hex_mode))
+            frame = mav_raw.build_frame(
+                data,
+                msgid,
+                sysid=sysid,
+                compid=compid,
+                target_sysid=target,
+            )
+        except ValueError as exc:
+            return self._err(f"组帧失败：{exc}")
+        ok, message = link.send_bytes(frame)
+        if not ok:
+            return self._err(message)
+        return self._ok({
+            "sent": True,
+            "bytes": len(frame),
+            "payload_len": frame[1],
+            "seq": frame[4],
+            "frame_hex": frame.hex(),
+            "crc_extra": mav_raw.crc_extra_for(msgid),
+        })
+
+    def api_mav_poll(self, device_id):
+        link = self._get(device_id)
+        if link is None:
+            return self._err("设备不存在")
+        return self._ok(link.poll_mav())
 
     def api_poll(self, device_id):
         link = self._get(device_id)

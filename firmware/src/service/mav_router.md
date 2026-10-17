@@ -92,3 +92,10 @@ LoRa mesh ──> on_mesh_rx ──> mav_router_feed（完整消息，不走状�
 ### mavlink_task（核1 优先级12）
 从 q_uart_rx / q_usb_rx 读字节流块，分别 feed；无 mesh 帧（mesh 帧走 main.cpp 的 on_mesh_rx 回调）
 - 任务开头 `watchdog_register_current()` 订阅任务看门狗，循环每轮 `watchdog_feed()`（P0-1）
+
+### USB 侧收帧统计（F15）
+- 定义：`usb_rx` = 从 **USB 来源**收到且 CRC 校验通过的 MAVLink 帧数；`usb_bad` = USB 来源收到但 CRC 校验失败的帧数
+- 位置：只在 `feed_bytes()` 的完整帧分支里自增，且仅当 `source == SRC_USB`；计数是纯附加，不改变原有路由行为（CRC 失败仍和原来一样丢弃）
+- 为什么只算 USB 来源：UART 来自飞控、MESH 来自空口，三种来源混在一起就无法判断"电脑发出去的帧板子到底收没收到"
+- 用途：配合上位机 MAVLink 强行编解码做端到端调试——电脑发一帧，CLI `status` 的 `MAV: USB收帧` 应 +1；只增 `校验失败` 则说明帧格式/CRC 有问题
+- 变量跨核读写（core1 收帧写、CLI 读），声明为 `volatile`

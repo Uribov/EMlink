@@ -8,6 +8,7 @@ import threading
 
 import serial
 
+from . import mav_raw
 from .cli_client import CliClient
 from .dispatcher import Dispatcher
 
@@ -56,6 +57,9 @@ class SerialLink:
         self._write_lock = threading.Lock()
         self._lines_lock = threading.Lock()
         self._lines = []
+        self._mav_lock = threading.Lock()
+        self._mav_buffer = b""
+        self._mav_frames = []
         self._status = "closed"
         self._note = ""
         self.led_state = None
@@ -66,6 +70,18 @@ class SerialLink:
     @property
     def status(self):
         return self._status
+
+    @property
+    def mode(self):
+        return self.dispatcher.mode
+
+    def set_mode(self, mode):
+        if not self.dispatcher.set_mode(mode):
+            return False
+        with self._mav_lock:
+            self._mav_buffer = b""
+            self._mav_frames = []
+        return True
 
     def open(self):
         if self._status == "connected" and self._serial is not None:
@@ -83,6 +99,9 @@ class SerialLink:
             self._serial = ser
         self.cli.clear()
         self.dispatcher.reset()
+        with self._mav_lock:
+            self._mav_buffer = b""
+            self._mav_frames = []
         self.led_state = None
         self._status = "connected"
         self._note = ""
@@ -114,11 +133,31 @@ class SerialLink:
             return False, "设备未连接"
         return self.cli.enqueue(text)
 
+    def send_bytes(self, payload):
+        if self._status != "connected":
+            return False, "设备未连接"
+        try:
+            self._write(payload)
+        except Exception as exc:
+            return False, f"发送失败：{exc}"
+        return True, ""
+
     def poll(self):
         with self._lines_lock:
             lines = self._lines
             self._lines = []
         return {"lines": lines, "status": self._status, "note": self._note}
+
+    def poll_mav(self):
+        with self._mav_lock:
+            frames = self._mav_frames
+            self._mav_frames = []
+        return {
+            "frames": [mav_raw.frame_to_json(frame) for frame in frames],
+            "status": self._status,
+            "note": self._note,
+            "mode": self.dispatcher.mode,
+        }
 
     def _read_loop(self):
         while self._running:
@@ -137,7 +176,19 @@ class SerialLink:
                     self._close_serial()
                 break
             if data:
-                self.dispatcher.feed(data)
+                if self.dispatcher.mode == "mavlink":
+                    self._feed_mav(data)
+                else:
+                    self.dispatcher.feed(data)
+
+    def _feed_mav(self, data):
+        with self._mav_lock:
+            frames, self._mav_buffer = mav_raw.parse_frames(self._mav_buffer + data)
+            if frames:
+                self._mav_frames.extend(frames)
+                overflow = len(self._mav_frames) - 1000
+                if overflow > 0:
+                    del self._mav_frames[:overflow]
 
     def _write(self, payload):
         with self._write_lock:

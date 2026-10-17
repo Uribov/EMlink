@@ -189,6 +189,12 @@ void cli_handle_line(const char* line) {
                  (unsigned)addr_map_expired_count(), (unsigned)addr_map_evict_count(),
                  (unsigned)frag_slot_evict_count(), (unsigned)rtos_tx_drop_count());
         cli_print(line);
+        // 中间层·MAVLink：USB 侧收帧与校验结果，确认电脑发出的帧板子是否解析成功。
+        snprintf(line, sizeof(line),
+                 "MAV: USB收帧=%u  校验失败=%u\r\n",
+                 (unsigned)mav_router_usb_rx_count(),
+                 (unsigned)mav_router_usb_badcrc_count());
+        cli_print(line);
         // 中间层·速率：ADR/信标/相位协商，属于链路自适应。
         snprintf(line, sizeof(line),
                  "速率: ADR 对齐=%s  信标=%u  多跳=%u  失步=%u  多锚点=%u  SF=%u  beacon_s=%s\r\n",

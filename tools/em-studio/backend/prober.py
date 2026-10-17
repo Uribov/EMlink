@@ -104,9 +104,11 @@ def parse_status(lines):
             current = {"name": separator.group(1).strip(), "items": []}
             layers.append(current)
             continue
-        if current is None:
+        if not current:
             continue
-        if not text or text.startswith("===") or not re.search(r"[0-9A-Za-z\u4e00-\u9fff]", text):
+        if not text or text.startswith("#") or text.startswith("==="):
+            continue
+        if not re.search(r"[0-9A-Za-z\u4e00-\u9fff]", text):
             continue
         for label, value in _line_items(text):
             if not label:

@@ -20,6 +20,11 @@ enum { SRC_UART = 0, SRC_USB = 1, SRC_MESH = 2 };
 
 static uint8_t g_local_sysid = 0;
 static uint32_t g_sysid_conflict = 0;
+
+// USB 侧 MAVLink 收帧统计（调试用：确认电脑发的帧板子是否解析成功）
+static volatile uint32_t g_usb_mav_rx_count = 0;   // CRC 通过
+static volatile uint32_t g_usb_mav_bad_count = 0;  // CRC 失败
+
 static uint8_t g_role = ROLE_UNSET;
 static uint8_t g_node_id = 1;
 static uint8_t g_ttl = FRAME_DEF_TTL;
@@ -306,7 +311,12 @@ static void feed_bytes(rx_state_t* st, const uint8_t* data, size_t len, uint8_t 
         } else {
             st->buf[st->len++] = c;
             if (st->len == st->expected) {
-                if (mav_crc_ok(st->buf, st->len)) {
+                bool crc_ok = mav_crc_ok(st->buf, st->len);
+                if (source == SRC_USB) {
+                    if (crc_ok) g_usb_mav_rx_count++;
+                    else        g_usb_mav_bad_count++;
+                }
+                if (crc_ok) {
                     route_msg(st->buf, st->len, source);
                 }
                 st->len = 0;
@@ -355,3 +365,6 @@ void mav_router_start(void) {
 }
 
 uint32_t mav_router_stream_drop_count(void) { return g_stream_drop; }
+
+uint32_t mav_router_usb_rx_count(void) { return g_usb_mav_rx_count; }
+uint32_t mav_router_usb_badcrc_count(void) { return g_usb_mav_bad_count; }

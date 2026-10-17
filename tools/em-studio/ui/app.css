@@ -223,3 +223,78 @@ option{background:var(--bg);color:var(--text)}
 .status-item .sv.err{color:var(--err)}
 /* 卡片再高也不能把原始终端挤没 */
 .panel-diag .output{min-height:120px}
+
+/* ---- D3b：MAVLink 强行解码面板 ---- */
+.panel-mav{min-width:0}
+.mav-send{flex:none;border:1px solid var(--line);background:#0a0a0a;
+padding:12px 14px;margin-bottom:10px}
+.mav-payload-field label{display:block;font-size:10px;letter-spacing:.12em;
+color:var(--muted);margin-bottom:7px}
+#mav-payload{display:block;width:100%;min-height:52px;resize:vertical;
+padding:9px 11px;background:transparent;border:1px solid var(--line);
+border-radius:0;color:var(--text);font-size:12px;line-height:1.5;
+font-family:ui-monospace,Menlo,Consolas,monospace}
+#mav-payload:focus{outline:none;border-color:var(--text)}
+#mav-payload::placeholder{color:var(--dim)}
+.mav-check{display:inline-flex;align-items:center;gap:7px;margin:8px 0 0;
+font-size:11px;letter-spacing:.05em;color:var(--muted);cursor:pointer}
+.mav-check input{appearance:none;-webkit-appearance:none;width:14px;height:14px;
+margin:0;border:1px solid var(--line);background:transparent;cursor:pointer;position:relative}
+.mav-check input:checked{background:var(--text);border-color:var(--text)}
+.mav-check input:checked::after{content:"";position:absolute;left:3px;top:1px;
+width:6px;height:9px;border:solid var(--bg);border-width:0 2px 2px 0;
+transform:rotate(45deg)}
+.mav-check input:focus{outline:none;border-color:var(--text)}
+.mav-check input:disabled{opacity:.4;cursor:not-allowed}
+.mav-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) auto;
+gap:8px;align-items:end;margin-top:10px}
+.mav-fields label{margin:0;font-size:9px}
+.mav-fields input{width:100%;padding:8px 9px;font-size:12px}
+.mav-fields .btn{margin:0;align-self:end;white-space:nowrap}
+.mav-tools{display:flex;align-items:center;gap:14px;flex:none;margin-bottom:10px}
+.mav-tools .mav-check{margin:0}
+.mav-tools .btn{margin:0}
+.mav-count{margin-left:auto;font-size:10px;letter-spacing:.08em;color:var(--dim);
+font-family:ui-monospace,Menlo,Consolas,monospace}
+.mav-table{flex:1;min-height:120px;display:flex;flex-direction:column;
+border:1px solid var(--line);background:#0a0a0a;overflow:hidden}
+.mav-head,.mav-row{display:grid;
+grid-template-columns:78px 68px 44px 48px 40px minmax(0,1fr) 44px;
+gap:8px;align-items:center;padding:0 10px}
+.mav-head{flex:none;height:26px;border-bottom:1px solid var(--line);
+font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.mav-rows{flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin;
+font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}
+.mav-row{min-height:26px;border-bottom:1px solid var(--line2);cursor:pointer;
+white-space:nowrap;color:var(--text)}
+.mav-row:hover{background:#141414}
+.mav-row.selected{background:#1c1c1c;box-shadow:inset 2px 0 0 var(--text)}
+.mav-row.fresh{animation:mav-row-in .5s ease-out both}
+@keyframes mav-row-in{
+  0%{opacity:0;background:#2a2a2a}
+  100%{opacity:1;background:transparent}
+}
+.mav-row .mav-time{color:var(--dim)}
+.mav-row .mav-payload{overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+.mav-row .crc-ok{color:var(--ok)}
+.mav-row .crc-bad{color:var(--err)}
+.mav-detail{flex:none;margin-top:10px;border:1px solid var(--line);
+background:#0a0a0a;padding:10px 12px;max-height:180px;overflow:auto}
+.mav-detail-head{display:flex;gap:14px;align-items:baseline;margin-bottom:8px}
+#mav-detail-title{font-family:ui-monospace,Menlo,Consolas,monospace;
+font-size:11px;color:var(--text)}
+#mav-detail-meta{margin:0}
+.mav-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.mav-k{font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+color:var(--muted);margin-bottom:5px}
+.mav-pre{margin:0;font-family:ui-monospace,Menlo,Consolas,monospace;
+font-size:11px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;
+color:var(--text);max-height:110px;overflow:auto}
+.panel-mav.disabled .mav-send,.panel-mav.disabled .mav-tools{opacity:.45}
+.panel-mav.disabled .mav-table,.panel-mav.disabled .mav-detail{opacity:.75}
+@media(max-width:760px){
+  .mav-fields{grid-template-columns:1fr 1fr}
+  .mav-fields .btn{grid-column:1/-1;width:100%}
+  .mav-head,.mav-row{grid-template-columns:64px 58px 38px 40px 34px minmax(0,1fr) 36px}
+  .mav-detail-grid{grid-template-columns:1fr}
+}

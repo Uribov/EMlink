@@ -18,9 +18,7 @@
     </div>
     <div class="mode-seg" role="group" aria-label="模式">
       <button class="mode-btn active" type="button" data-mode="cli">配置</button>
-      <span class="mode-wrap" title="MAVLink 解码模式将在 D-3 提供">
-        <button class="mode-btn" type="button" data-mode="mavlink" disabled>解码</button>
-      </span>
+      <button class="mode-btn" type="button" data-mode="mavlink">解码</button>
     </div>
   </div>
 
@@ -166,6 +164,70 @@
                autocomplete="off" spellcheck="false" disabled>
         <button id="btn-send" class="btn compact primary" type="submit" disabled>发送</button>
       </form>
+    </div>
+
+    <div id="panel-mav" class="panel panel-mav" hidden>
+      <h2>MAVLink 强行解码</h2>
+
+      <div class="mav-send">
+        <div class="mav-payload-field">
+          <label for="mav-payload">payload（文本 / hex）</label>
+          <textarea id="mav-payload" rows="2" placeholder="hello EMlink"
+                    autocomplete="off" spellcheck="false"></textarea>
+        </div>
+        <label class="mav-check">
+          <input type="checkbox" id="mav-hex"> 按 hex 解析
+        </label>
+        <div class="mav-fields">
+          <label>msgid<input id="mav-msgid" type="text" value="200" inputmode="numeric"
+                            autocomplete="off" spellcheck="false"></label>
+          <label>sysid<input id="mav-sysid" type="text" value="255" inputmode="numeric"
+                             autocomplete="off" spellcheck="false"></label>
+          <label>compid<input id="mav-compid" type="text" value="0" inputmode="numeric"
+                              autocomplete="off" spellcheck="false"></label>
+          <label>target<input id="mav-target" type="text" value="0" inputmode="numeric"
+                              autocomplete="off" spellcheck="false"></label>
+          <button id="btn-mav-send" class="btn compact primary" type="button">发送帧</button>
+        </div>
+      </div>
+
+      <div class="mav-tools">
+        <label class="mav-check">
+          <input type="checkbox" id="mav-heartbeat"> 模拟心跳（1 秒）
+        </label>
+        <button id="btn-mav-request" class="btn compact ghost" type="button">请求参数</button>
+        <span id="mav-count" class="mav-count">0 帧</span>
+      </div>
+
+      <div class="mav-table">
+        <div class="mav-head">
+          <span>时间</span>
+          <span>msgid</span>
+          <span>sys</span>
+          <span>comp</span>
+          <span>len</span>
+          <span>payload</span>
+          <span>CRC</span>
+        </div>
+        <div id="mav-rows" class="mav-rows" role="log" aria-live="polite"></div>
+      </div>
+
+      <div id="mav-detail" class="mav-detail" hidden>
+        <div class="mav-detail-head">
+          <span id="mav-detail-title">—</span>
+          <span id="mav-detail-meta" class="note"></span>
+        </div>
+        <div class="mav-detail-grid">
+          <div>
+            <div class="mav-k">payload hex</div>
+            <pre id="mav-detail-hex" class="mav-pre"></pre>
+          </div>
+          <div>
+            <div class="mav-k">文本还原</div>
+            <pre id="mav-detail-text" class="mav-pre"></pre>
+          </div>
+        </div>
+      </div>
     </div>
   </main>
 </div>

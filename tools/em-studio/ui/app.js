@@ -9,6 +9,8 @@
   const PARAM_KEYS = ['role', 'node_id', 'freq', 'sf', 'bw', 'cr', 'power', 'auto_wifi_s', 'crypto'];
   const LED_TICK_MS = 50;
   const STATUS_POLL_MS = 2000;
+  const MAV_MAX_FRAMES = 200;
+  const HEARTBEAT_PAYLOAD_HEX = '000000000000000003';
 
   const state = {
     ports: [],
@@ -16,6 +18,7 @@
     tabs: new Map(),
     activeId: null,
     renderedId: null,
+    mavRenderedId: null,
     bound: false,
     booted: false,
     polling: false,
@@ -252,7 +255,7 @@
 
   async function pollStatus() {
     const tab = activeTab();
-    if (!tab || tab.status !== 'connected') {
+    if (!tab || tab.status !== 'connected' || tab.mode !== 'cli') {
       stopStatusPolling();
       return;
     }
@@ -372,6 +375,12 @@
     if (!('statusData' in tab)) tab.statusData = null;
     if (typeof tab.statusStale !== 'boolean') tab.statusStale = false;
     if (typeof tab.statusError !== 'string') tab.statusError = '';
+    if (tab.mode !== 'cli' && tab.mode !== 'mavlink') tab.mode = 'cli';
+    if (!Array.isArray(tab.frames)) tab.frames = [];
+    if (!('selectedFrame' in tab)) tab.selectedFrame = null;
+    if (typeof tab.heartbeat !== 'boolean') tab.heartbeat = false;
+    if (!('heartbeatTimer' in tab)) tab.heartbeatTimer = null;
+    if (typeof tab.frameSeq !== 'number') tab.frameSeq = 0;
   }
 
   function sfMaxForBw(bw) {
@@ -810,6 +819,11 @@
     $('empty').hidden = !!tab;
     if (!tab) {
       state.renderedId = null;
+      state.mavRenderedId = null;
+      updateModeButtons(null);
+      $('panel-diag').hidden = false;
+      $('panel-mav').hidden = true;
+      $('panel-params').hidden = false;
       setDiagEnabled(false);
       setParamsEnabled(false);
       setParamsNote('');
@@ -834,10 +848,27 @@
     state.renderedId = tab.id;
     fillConfigForm(tab, switched);
 
+    const isMav = tab.mode === 'mavlink';
+    updateModeButtons(tab);
+    $('panel-diag').hidden = isMav;
+    $('panel-mav').hidden = !isMav;
+    $('panel-params').hidden = isMav;
+    updateLedTriangle();
+
+    if (isMav) {
+      setDiagEnabled(false);
+      setParamsEnabled(false);
+      stopStatusPolling();
+      const cards = $('status-cards');
+      if (cards) cards.hidden = true;
+      renderMavPanel(tab);
+      return;
+    }
+
+    renderMavPanel(null);
     renderOutput(tab);
     setDiagEnabled(tab.status === 'connected');
     setParamsEnabled(tab.status === 'connected' && !tab.configLoading);
-    updateLedTriangle();
 
     if (tab.status === 'connected') {
       renderStatusCards(tab);
@@ -877,7 +908,9 @@
     state.activeId = id;
     renderAll();
     const tab = state.tabs.get(id);
-    if (tab && tab.status === 'connected' && !tab.configLoaded) fetchConfig(tab);
+    if (tab && tab.mode === 'cli' && tab.status === 'connected' && !tab.configLoaded) {
+      fetchConfig(tab);
+    }
   }
 
   async function refreshPorts() {
@@ -900,6 +933,7 @@
       tab.note = '';
       ensureTabState(tab);
       tab.led.state = null;
+      stopHeartbeat(tab);
       appendLine(tab, '[已断开]');
       renderAll();
     } catch (err) {
@@ -947,10 +981,14 @@
     }
     ensureTabState(tab);
     tab.led.state = null;
+    tab.frames = [];
+    tab.selectedFrame = null;
+    tab.frameSeq = 0;
+    state.mavRenderedId = null;
     state.activeId = id;
     renderAll();
     appendLine(tab, '> 已连接 ' + port + ' · 115200');
-    fetchConfig(tab);
+    if (tab.mode === 'cli') fetchConfig(tab);
   }
 
   async function onConnectClick() {
@@ -995,12 +1033,14 @@
       showToast(err.message, true);
       return;
     }
+    stopHeartbeat(tab);
     state.tabs.delete(id);
     state.order = state.order.filter(function (item) {
       return item !== id;
     });
     if (state.activeId === id) {
       state.activeId = state.order.length ? state.order[state.order.length - 1] : null;
+      state.mavRenderedId = null;
     }
     renderAll();
   }
@@ -1056,6 +1096,7 @@
           tab.note = result.error;
           changed = true;
         }
+        if (tab.heartbeat) stopHeartbeat(tab);
         continue;
       }
 
@@ -1081,8 +1122,10 @@
                  !sameLed(tab.led.state, data.led)) {
         tab.led.state = data.led;
       }
+      if (tab.status !== 'connected' && tab.heartbeat) stopHeartbeat(tab);
     }
-    if (changed) renderAll();
+    const mavChanged = await pollMavFrames(ids);
+    if (changed || mavChanged) renderAll();
   }
 
   function startPolling() {
@@ -1152,6 +1195,393 @@
     ensureTabState(tab);
     if (!applyLedState(tab)) {
       setTriStyle('var(--dim)', 0, false);
+    }
+  }
+
+  function updateModeButtons(tab) {
+    const mode = tab ? tab.mode : 'cli';
+    const buttons = document.querySelectorAll('.mode-btn');
+    for (const button of buttons) {
+      button.classList.toggle('active', button.dataset.mode === mode);
+    }
+  }
+
+  function setMavEnabled(enabled) {
+    const panel = $('panel-mav');
+    panel.classList.toggle('disabled', !enabled);
+    const controls = panel.querySelectorAll('input,textarea,button');
+    for (const control of controls) control.disabled = !enabled;
+  }
+
+  function renderMavPanel(tab) {
+    const panel = $('panel-mav');
+    if (!tab || tab.mode !== 'mavlink') {
+      panel.hidden = true;
+      $('mav-heartbeat').checked = false;
+      return;
+    }
+    panel.hidden = false;
+    setMavEnabled(tab.status === 'connected');
+    $('mav-heartbeat').checked = !!tab.heartbeat;
+    if (state.mavRenderedId !== tab.id) {
+      renderMavTable(tab);
+      renderMavDetail(tab);
+      state.mavRenderedId = tab.id;
+    }
+  }
+
+  function formatFrameTime(ts) {
+    const date = new Date(Number(ts) || Date.now());
+    function pad(value, width) {
+      return String(value).padStart(width || 2, '0');
+    }
+    return pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' +
+      pad(date.getSeconds()) + '.' + pad(date.getMilliseconds(), 3);
+  }
+
+  function formatHex(hex) {
+    if (!hex) return '';
+    const parts = [];
+    for (let i = 0; i < hex.length; i += 2) parts.push(hex.slice(i, i + 2));
+    return parts.join(' ');
+  }
+
+  function hex16(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '----';
+    return (number & 0xFFFF).toString(16).padStart(4, '0').toUpperCase();
+  }
+
+  function frameIsText(frame) {
+    if (!frame || !frame.payload_hex) return false;
+    const text = frame.payload_text || '';
+    if (!text) return false;
+    return !/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFD]/.test(text);
+  }
+
+  function payloadSummary(frame) {
+    if (!frame || !frame.payload_hex) return '（空）';
+    if (frameIsText(frame)) {
+      const text = (frame.payload_text || '').replace(/\s+/g, ' ');
+      return text.length > 48 ? text.slice(0, 48) + '…' : text;
+    }
+    const parts = [];
+    for (let i = 0; i < frame.payload_hex.length && i < 32; i += 2) {
+      parts.push(frame.payload_hex.slice(i, i + 2));
+    }
+    return parts.join(' ') + (frame.payload_hex.length > 32 ? ' …' : '');
+  }
+
+  function makeFrameRow(tab, frame, animate) {
+    const row = document.createElement('div');
+    row.className = 'mav-row' +
+      (animate ? ' fresh' : '') +
+      (tab.selectedFrame === frame ? ' selected' : '');
+    row.dataset.key = String(frame._k || '');
+
+    const time = document.createElement('span');
+    time.className = 'mav-time';
+    time.textContent = formatFrameTime(frame.ts);
+
+    const msgid = document.createElement('span');
+    msgid.textContent = String(frame.msgid);
+
+    const sysid = document.createElement('span');
+    sysid.textContent = String(frame.sysid);
+
+    const compid = document.createElement('span');
+    compid.textContent = String(frame.compid);
+
+    const len = document.createElement('span');
+    len.textContent = String(frame.len);
+
+    const payload = document.createElement('span');
+    payload.className = 'mav-payload';
+    payload.textContent = payloadSummary(frame);
+    payload.title = payload.textContent;
+
+    const crc = document.createElement('span');
+    crc.className = frame.crc_ok ? 'crc-ok' : 'crc-bad';
+    crc.textContent = frame.crc_ok ? '✓' : '✗';
+    crc.title = 'recv 0x' + hex16(frame.crc_recv) + ' / calc 0x' + hex16(frame.crc_calc);
+
+    row.appendChild(time);
+    row.appendChild(msgid);
+    row.appendChild(sysid);
+    row.appendChild(compid);
+    row.appendChild(len);
+    row.appendChild(payload);
+    row.appendChild(crc);
+
+    row.addEventListener('click', function () {
+      tab.selectedFrame = frame;
+      const rows = $('mav-rows');
+      for (const selected of rows.querySelectorAll('.mav-row.selected')) {
+        selected.classList.remove('selected');
+      }
+      row.classList.add('selected');
+      renderMavDetail(tab);
+    });
+
+    if (animate) {
+      row.addEventListener('animationend', function () {
+        row.classList.remove('fresh');
+      }, { once: true });
+    }
+    return row;
+  }
+
+  function updateMavCount(tab) {
+    const count = tab && Array.isArray(tab.frames) ? tab.frames.length : 0;
+    const bad = tab && Array.isArray(tab.frames)
+      ? tab.frames.filter(function (frame) { return !frame.crc_ok; }).length
+      : 0;
+    $('mav-count').textContent = count + ' 帧' + (bad ? ' · CRC ✗ ' + bad : '');
+  }
+
+  function renderMavTable(tab) {
+    const rows = $('mav-rows');
+    rows.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    for (const frame of tab.frames) {
+      frag.appendChild(makeFrameRow(tab, frame, false));
+    }
+    rows.appendChild(frag);
+    rows.scrollTop = rows.scrollHeight;
+    updateMavCount(tab);
+  }
+
+  function renderMavDetail(tab) {
+    const box = $('mav-detail');
+    const frame = tab && tab.selectedFrame;
+    if (!frame) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    $('mav-detail-title').textContent = 'msgid ' + frame.msgid +
+      ' · sys ' + frame.sysid + ' · comp ' + frame.compid + ' · len ' + frame.len;
+    $('mav-detail-meta').textContent =
+      'seq ' + frame.seq + ' · ' + (frame.crc_ok ? 'CRC ✓' : 'CRC ✗') +
+      ' · recv 0x' + hex16(frame.crc_recv) +
+      ' / calc 0x' + hex16(frame.crc_calc) +
+      ' · crc_extra ' + frame.crc_extra;
+    $('mav-detail-hex').textContent = formatHex(frame.payload_hex) || '（空）';
+    if (!frame.payload_hex) {
+      $('mav-detail-text').textContent = '（空）';
+    } else if (frameIsText(frame)) {
+      $('mav-detail-text').textContent = frame.payload_text || '（空）';
+    } else {
+      $('mav-detail-text').textContent = '（不可读，见 payload hex）';
+    }
+  }
+
+  function addFrames(tab, frames) {
+    ensureTabState(tab);
+    for (const frame of frames) {
+      frame._k = ++tab.frameSeq;
+      tab.frames.push(frame);
+    }
+
+    let dropped = [];
+    if (tab.frames.length > MAV_MAX_FRAMES) {
+      dropped = tab.frames.splice(0, tab.frames.length - MAV_MAX_FRAMES);
+    }
+    if (tab.selectedFrame && dropped.indexOf(tab.selectedFrame) !== -1) {
+      tab.selectedFrame = null;
+      if (tab.id === state.activeId) renderMavDetail(tab);
+    }
+
+    if (tab.id !== state.activeId || tab.mode !== 'mavlink') return;
+    if (state.mavRenderedId !== tab.id) {
+      renderMavTable(tab);
+      renderMavDetail(tab);
+      state.mavRenderedId = tab.id;
+      return;
+    }
+
+    const rows = $('mav-rows');
+    for (let i = 0; i < dropped.length && rows.firstElementChild; i++) {
+      rows.firstElementChild.remove();
+    }
+    const nearBottom = rows.scrollHeight - rows.scrollTop - rows.clientHeight < 28;
+    const keep = new Set(tab.frames);
+    const frag = document.createDocumentFragment();
+    for (const frame of frames) {
+      if (keep.has(frame)) frag.appendChild(makeFrameRow(tab, frame, true));
+    }
+    rows.appendChild(frag);
+    if (nearBottom) rows.scrollTop = rows.scrollHeight;
+    updateMavCount(tab);
+  }
+
+  async function pollMavFrames(ids) {
+    const targets = [];
+    for (const id of ids) {
+      const tab = state.tabs.get(id);
+      if (tab && tab.mode === 'mavlink' && tab.status === 'connected') {
+        targets.push(id);
+      }
+    }
+    if (!targets.length) return false;
+
+    const results = await Promise.all(targets.map(async function (id) {
+      try {
+        const data = await call('api_mav_poll', id);
+        return { id: id, data: data };
+      } catch (err) {
+        return { id: id, error: err.message };
+      }
+    }));
+
+    let changed = false;
+    for (const result of results) {
+      const tab = state.tabs.get(result.id);
+      if (!tab || result.error) continue;
+      const data = result.data || {};
+      if (Array.isArray(data.frames) && data.frames.length) {
+        addFrames(tab, data.frames);
+      }
+      if (data.status && data.status !== tab.status) {
+        tab.status = data.status;
+        changed = true;
+      }
+      if (typeof data.note === 'string' && data.note !== tab.note) {
+        tab.note = data.note;
+        changed = true;
+      }
+      if (tab.status !== 'connected' && tab.heartbeat) stopHeartbeat(tab);
+    }
+    return changed;
+  }
+
+  async function setMode(mode) {
+    const tab = activeTab();
+    if (!tab) {
+      showToast('先连接设备，再切换模式', true);
+      return;
+    }
+    ensureTabState(tab);
+    if (tab.mode === mode) return;
+    try {
+      await call('api_set_mode', tab.id, mode);
+    } catch (err) {
+      showToast(err.message, true);
+      return;
+    }
+
+    tab.mode = mode;
+    if (mode === 'mavlink') {
+      tab.frames = [];
+      tab.selectedFrame = null;
+      tab.frameSeq = 0;
+    } else {
+      stopHeartbeat(tab);
+    }
+    state.mavRenderedId = null;
+    renderAll();
+    if (mode === 'cli' && tab.status === 'connected' && !tab.configLoaded) {
+      fetchConfig(tab);
+    }
+    showToast(mode === 'mavlink'
+      ? '已切到解码模式：CLI 文本丢弃'
+      : '已切到配置模式：MAVLink 帧丢弃');
+  }
+
+  function startHeartbeat(tab) {
+    if (!tab || tab.heartbeatTimer) return;
+    tab.heartbeat = true;
+    const tick = async function () {
+      if (!tab.heartbeat || tab.status !== 'connected') return;
+      try {
+        await call('api_send_frame', tab.id, HEARTBEAT_PAYLOAD_HEX, 0, 255, 0, 0, true);
+      } catch (err) {
+        stopHeartbeat(tab);
+        showToast('心跳发送失败：' + err.message, true);
+      }
+    };
+    tick();
+    tab.heartbeatTimer = setInterval(tick, 1000);
+  }
+
+  function stopHeartbeat(tab) {
+    if (!tab) return;
+    tab.heartbeat = false;
+    if (tab.heartbeatTimer) {
+      clearInterval(tab.heartbeatTimer);
+      tab.heartbeatTimer = null;
+    }
+    if (tab.id === state.activeId) $('mav-heartbeat').checked = false;
+  }
+
+  function readMavInt(id, label, low, high) {
+    const raw = ($(id).value || '').trim();
+    if (!/^\d+$/.test(raw)) {
+      showToast(label + ' 必须是整数', true);
+      return null;
+    }
+    const value = parseInt(raw, 10);
+    if (!Number.isInteger(value) || value < low || value > high) {
+      showToast(label + ' 必须在 ' + low + '..' + high, true);
+      return null;
+    }
+    return value;
+  }
+
+  async function sendMavFrame() {
+    const tab = activeTab();
+    if (!tab) return;
+    if (tab.status !== 'connected') {
+      showToast('设备未连接', true);
+      return;
+    }
+    if (tab.mode !== 'mavlink') {
+      showToast('请先切到解码模式', true);
+      return;
+    }
+    const msgid = readMavInt('mav-msgid', 'msgid', 0, 0xFFFFFF);
+    if (msgid === null) return;
+    const sysid = readMavInt('mav-sysid', 'sysid', 0, 0xFF);
+    if (sysid === null) return;
+    const compid = readMavInt('mav-compid', 'compid', 0, 0xFF);
+    if (compid === null) return;
+    const target = readMavInt('mav-target', 'target', 0, 0xFF);
+    if (target === null) return;
+
+    try {
+      const data = await call(
+        'api_send_frame',
+        tab.id,
+        $('mav-payload').value,
+        msgid,
+        sysid,
+        compid,
+        target,
+        $('mav-hex').checked
+      );
+      showToast('已发送 ' + data.bytes + ' 字节 · seq ' + data.seq +
+        ' · crc_extra ' + data.crc_extra);
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  }
+
+  async function sendRequestParams() {
+    const tab = activeTab();
+    if (!tab) return;
+    if (tab.status !== 'connected') {
+      showToast('设备未连接', true);
+      return;
+    }
+    if (tab.mode !== 'mavlink') {
+      showToast('请先切到解码模式', true);
+      return;
+    }
+    try {
+      await call('api_send_frame', tab.id, '00 00', 21, 255, 0, 0, true);
+      showToast('已发送 PARAM_REQUEST_LIST（msgid 21，广播）');
+    } catch (err) {
+      showToast(err.message, true);
     }
   }
 
@@ -1288,6 +1718,36 @@
         sendCommand(button.dataset.cmd);
       });
     }
+
+    const modeButtons = document.querySelectorAll('.mode-btn');
+    for (const button of modeButtons) {
+      button.addEventListener('click', function () {
+        setMode(button.dataset.mode);
+      });
+    }
+
+    $('btn-mav-send').addEventListener('click', sendMavFrame);
+    $('btn-mav-request').addEventListener('click', sendRequestParams);
+    $('mav-payload').addEventListener('keydown', function (ev) {
+      if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') {
+        ev.preventDefault();
+        sendMavFrame();
+      }
+    });
+    $('mav-heartbeat').addEventListener('change', function () {
+      const tab = activeTab();
+      if (!tab) {
+        this.checked = false;
+        return;
+      }
+      if (tab.status !== 'connected' || tab.mode !== 'mavlink') {
+        this.checked = false;
+        showToast('连接并切到解码模式后才能发心跳', true);
+        return;
+      }
+      if (this.checked) startHeartbeat(tab);
+      else stopHeartbeat(tab);
+    });
 
     bindParamEvents();
   }

@@ -42,6 +42,10 @@ bool mav_router_heartbeat_ok();
 // 被流限速丢掉的遥测帧数（P1-10；只统计"转 LoRa"方向）
 uint32_t mav_router_stream_drop_count(void);
 
+// USB 侧 MAVLink 收帧数（CRC 通过 / CRC 失败，仅 USB 来源）
+uint32_t mav_router_usb_rx_count(void);       // USB 侧 CRC 通过的收帧数
+uint32_t mav_router_usb_badcrc_count(void);   // USB 侧 CRC 失败数
+
 // 收到 NACK（frag 缺件催发）：从发送缓存补发缺失分片
 // payload = [orig_sysid, frag_seq, 缺失位图]
 void mav_router_on_nack(const uint8_t* payload, size_t len);
