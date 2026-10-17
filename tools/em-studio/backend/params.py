@@ -30,6 +30,9 @@ ALLOWED_SET_KEYS = {
 _KV_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s+(.+)$")
 _EQUALS_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$")
 _HEX32 = re.compile(r"^[0-9a-fA-F]{32}$")
+_LED_LINE = re.compile(
+    r"mode=(\w+)\s+color=(\d+),(\d+),(\d+)\s+half=(\d+)(?:\s+phase=(\d+))?"
+)
 
 
 def _clean_lines(lines):
@@ -123,6 +126,28 @@ def read_config(link):
 
     note = "；".join(dict.fromkeys(item for item in errors if item))
     return data, note
+
+
+def read_led(link):
+    """查板子当前灯态。返回 (data, error)；data = {mode, r, g, b, half, phase} 或 None。
+
+    `led` 只回一行；“这一帧实际画出去的颜色”由板子给出，上位机照抄即可。
+    超时设短一点，避免 10Hz 轮询把 CLI 队列堵住。
+    """
+    ok, lines, error = _query(link, "led", timeout=0.4, quiet=0.08)
+    for text in _clean_lines(lines):
+        match = _LED_LINE.search(text)
+        if not match:
+            continue
+        return {
+            "mode": match.group(1),
+            "r": int(match.group(2)),
+            "g": int(match.group(3)),
+            "b": int(match.group(4)),
+            "half": int(match.group(5)),
+            "phase": int(match.group(6) or 0),
+        }, ""
+    return None, "板子未返回灯态"
 
 
 def set_config(link, key, value):

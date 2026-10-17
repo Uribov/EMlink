@@ -44,6 +44,8 @@ void cli_help() {
               "  factory              恢复出厂默认（清 role/密钥/参数）\r\n"
               "  status               分层状态（驱动/中间/应用）\r\n"
               "  stats                看统计\r\n"
+              "  led                  查当前灯态（供上位机同步）\r\n"
+              "  led stream on|off    开/关灯态推送（上位机同步用；关了就不打 #led 行）\r\n"
               "  crypto <32hex>|off   设/关加密密钥（空=看状态）\r\n"
               "  wifi [off]           开/关 WiFi 维护模式\r\n"
               "  scan                 扫邻居 + 信号\r\n"
@@ -216,6 +218,33 @@ void cli_handle_line(const char* line) {
         stats_t s;
         stats_collect(&s);
         stats_print(&s);
+    } else if (strcmp(cmd, "led") == 0) {
+        if (n >= 2 && strcmp(arg1, "stream") == 0) {
+            if (n >= 3) {
+                if (strcmp(arg2, "on") == 0) {
+                    stats_led_stream_set(true);
+                    cli_print("led stream=on\r\n");
+                } else if (strcmp(arg2, "off") == 0) {
+                    stats_led_stream_set(false);
+                    cli_print("led stream=off\r\n");
+                } else {
+                    cli_print("用法：led stream on|off\r\n");
+                }
+            } else {
+                cli_print(stats_led_stream_get() ? "led stream=on\r\n" : "led stream=off\r\n");
+            }
+        } else if (n >= 2) {
+            cli_print("用法：led [stream on|off]\r\n");
+        } else {
+            led_snapshot_t ls;
+            stats_led_snapshot(&ls);
+            char line[96];
+            snprintf(line, sizeof(line),
+                     "led mode=%s color=%u,%u,%u half=%u phase=%lu\r\n",
+                     ls.mode, (unsigned)ls.r, (unsigned)ls.g, (unsigned)ls.b,
+                     (unsigned)ls.half_ms, (unsigned long)ls.phase_ms);
+            cli_print(line);
+        }
     } else if (strcmp(cmd, "crypto") == 0) {
         if (n >= 2) {
             if (strcmp(arg1, "off") == 0) {

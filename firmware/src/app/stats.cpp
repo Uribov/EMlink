@@ -46,6 +46,57 @@ static uint32_t g_led_key_ms = 0;   // 上次状态切换时刻（去抖用）
 
 static uint16_t g_failsafe_s = 3;
 
+// 本帧实际画出去的灯态（供 CLI/上位机查询；tick 内每帧更新）
+static led_snapshot_t g_led_snap = {"off", 0, 0, 0, 0, 0};
+
+// ---- 灯态变化主动推送（F8a：事件驱动，替代上位机轮询）----
+#define LED_STREAM_MIN_GAP_MS 50    // 防抖：同一帧边界不重复推
+
+static bool g_led_stream = true;    // 默认开
+static const char* g_last_mode = "";
+static uint8_t  g_last_r = 0, g_last_g = 0, g_last_b = 0;
+static uint16_t g_last_half = 0;
+static uint32_t g_last_push_ms = 0;
+
+// 本帧 snapshot 写完后调用：仅在灯态变化时推一行 "#led ..."
+static void led_stream_sync(uint32_t now) {
+    bool changed = (g_last_mode != g_led_snap.mode &&
+                    strcmp(g_last_mode, g_led_snap.mode) != 0) ||
+                   g_last_r != g_led_snap.r ||
+                   g_last_g != g_led_snap.g ||
+                   g_last_b != g_led_snap.b ||
+                   g_last_half != g_led_snap.half_ms;
+
+    // 关闭时仍更新"上一帧"，重新打开后不会把旧差异一次补推出去
+    if (!g_led_stream) {
+        g_last_mode = g_led_snap.mode;
+        g_last_r = g_led_snap.r; g_last_g = g_led_snap.g; g_last_b = g_led_snap.b;
+        g_last_half = g_led_snap.half_ms;
+        return;
+    }
+    if (!changed) return;
+    if ((now - g_last_push_ms) < LED_STREAM_MIN_GAP_MS) return;
+
+    char line[64];
+    snprintf(line, sizeof(line), "#led mode=%s color=%u,%u,%u half=%u\r\n",
+             g_led_snap.mode, (unsigned)g_led_snap.r, (unsigned)g_led_snap.g,
+             (unsigned)g_led_snap.b, (unsigned)g_led_snap.half_ms);
+    usb_cli_write((const uint8_t*)line, strlen(line));
+
+    g_last_mode = g_led_snap.mode;
+    g_last_r = g_led_snap.r; g_last_g = g_led_snap.g; g_last_b = g_led_snap.b;
+    g_last_half = g_led_snap.half_ms;
+    g_last_push_ms = now;
+}
+
+void stats_led_stream_set(bool on) {
+    g_led_stream = on;
+}
+
+bool stats_led_stream_get(void) {
+    return g_led_stream;
+}
+
 // 只初始化 LED（可在启动极早期调用，让启动序列尽早开跑；与 stats_task 无关）
 void stats_led_init(void) {
 #if PIN_LED >= 0
@@ -135,12 +186,22 @@ void stats_led_tick(void) {
     if (age < BOOT_SEQ_MS) {
         static const uint8_t SEQ[3][3] = {{255, 0, 0}, {0, 0, 255}, {0, 255, 0}};
         uint8_t k = (uint8_t)((age / BOOT_STEP_MS) % 3);
+        g_led_snap.mode = "boot";
+        g_led_snap.r = SEQ[k][0]; g_led_snap.g = SEQ[k][1]; g_led_snap.b = SEQ[k][2];
+        g_led_snap.half_ms = 0;
+        g_led_snap.phase_ms = now;
+        led_stream_sync(now);
         g_led->setBrightness(LED_BRIGHT_NORMAL);
         g_led->setPixelColor(0, g_led->Color(SEQ[k][0], SEQ[k][1], SEQ[k][2]));
         g_led->show();
         return;
     }
     if (age < BOOT_SEQ_MS + BOOT_GAP_MS) {          // 空档：灭灯 0.5s
+        g_led_snap.mode = "boot";
+        g_led_snap.r = 0; g_led_snap.g = 0; g_led_snap.b = 0;
+        g_led_snap.half_ms = 0;
+        g_led_snap.phase_ms = now;
+        led_stream_sync(now);
         g_led->setBrightness(LED_BRIGHT_NORMAL);
         g_led->setPixelColor(0, g_led->Color(0, 0, 0));
         g_led->show();
@@ -164,6 +225,11 @@ void stats_led_tick(void) {
         uint8_t g = (uint8_t)(((uint16_t)g0 * (255 - t) + (uint16_t)g1 * t) / 255);
         uint8_t b = (uint8_t)(((uint16_t)b0 * (255 - t) + (uint16_t)b1 * t) / 255);
 
+        g_led_snap.mode = "rainbow";
+        g_led_snap.r = r; g_led_snap.g = g; g_led_snap.b = b;
+        g_led_snap.half_ms = 0;
+        g_led_snap.phase_ms = now;
+        led_stream_sync(now);
         g_led->setBrightness(WIFI_LED_BRIGHT);
         g_led->setPixelColor(0, g_led->Color(r, g, b));
         g_led->show();
@@ -203,9 +269,33 @@ void stats_led_tick(void) {
     else if (key == 2) on = ((now / BLINK_IDLE_HALF_MS) % 2) == 0;   // 待机：角色色慢闪
     if (!on) { rr = gg = bb = 0; }
 
+    g_led_snap.mode     = (key == 0) ? "fault" :
+                          (key == 1) ? "lost"  :
+                          (key == 2) ? "idle"  : "ok";
+    g_led_snap.r        = rr;
+    g_led_snap.g        = gg;
+    g_led_snap.b        = bb;
+    g_led_snap.half_ms  = (key == 0) ? BLINK_LOST_HALF_MS :
+                          (key == 1) ? BLINK_LOST_HALF_MS :
+                          (key == 2) ? BLINK_IDLE_HALF_MS : 0;
+    g_led_snap.phase_ms = now;
+    led_stream_sync(now);
+
     g_led->setBrightness(LED_BRIGHT_NORMAL);
     g_led->setPixelColor(0, g_led->Color(rr, gg, bb));
     g_led->show();
+}
+
+void stats_led_snapshot(led_snapshot_t* out) {
+    if (!out) return;
+    if (!g_led) {
+        out->mode = "off";
+        out->r = out->g = out->b = 0;
+        out->half_ms = 0;
+        out->phase_ms = millis();
+        return;
+    }
+    *out = g_led_snap;
 }
 
 static void led_task_func(void* arg) {

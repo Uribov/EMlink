@@ -147,3 +147,31 @@ select:hover{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://ww
 select:focus{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%23ededed'/></svg>")}
 /* 下拉展开的选项列表（GTK 上不一定全生效，设上更稳） */
 option{background:var(--bg);color:var(--text)}
+
+/* 诊断台标题行里的倒立三角：整行居中 + 与标题文字齐平（嵌在 h2:after 的那条横线里） */
+.panel-diag h2{position:relative}
+/* 遮断横线的一小段（颜色 = 面板底色，看起来就是“线在三角处让开”） */
+.panel-diag h2 .hd-gap{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:40px;height:4px;background:var(--bg);pointer-events:none;
+  z-index:1;
+}
+.panel-diag h2 .led-tri{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%); /* 整行居中 + 垂直与文字齐平 */
+  width:0;height:0;
+  border-left:12px solid transparent;       /* 3 倍大 */
+  border-right:12px solid transparent;
+  border-top:15px solid var(--dim);         /* 仍朝下（倒立） */
+  border-top-color:var(--tri-color, var(--dim));
+  transition:none;                          /* 快闪时不能有过渡，否则被下一次切换打断成半亮 */
+  pointer-events:none;                      /* 不吃点击 */
+  z-index:1;
+}
+/* 闪烁交给 CSS：steps(1,end) 瞬时切换，周期 = 半周期 × 2（由 JS 写 --tri-period） */
+.panel-diag h2 .led-tri.blink{
+  animation:tri-blink var(--tri-period, 200ms) steps(1, end) infinite;
+}
+@keyframes tri-blink{
+  0%,   49.99%{ border-top-color:var(--tri-color); }
+  50%,  100%  { border-top-color:transparent; }   /* 灭：透明（深色面板上等同不亮） */
+}

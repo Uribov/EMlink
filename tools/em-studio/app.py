@@ -98,7 +98,9 @@ class Api:
         link = self._get(device_id)
         if link is None:
             return self._err("设备不存在")
-        return self._ok(link.poll())
+        data = link.poll()
+        data["led"] = link.led_state
+        return self._ok(data)
 
     def api_get_config(self, device_id):
         link = self._get(device_id)
@@ -111,6 +113,20 @@ class Api:
         except Exception as exc:
             return self._err(f"读配置失败：{exc}")
         return {"ok": True, "data": data, "error": note or ""}
+
+    def api_led_state(self, device_id):
+        link = self._get(device_id)
+        if link is None:
+            return self._err("设备不存在")
+        if link.status != "connected":
+            return self._err("设备未连接")
+        try:
+            data, note = params.read_led(link)
+        except Exception as exc:
+            return self._err(f"读灯态失败：{exc}")
+        if not data:
+            return self._err(note or "板子未返回灯态")
+        return self._ok(data)
 
     def api_set_config(self, device_id, key, value):
         link = self._get(device_id)

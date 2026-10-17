@@ -15,6 +15,7 @@ save                  保存        reset         重启
 status                看状态      stats         看统计
 factory               恢复出厂默认（清 role/密钥/参数，P0-4）
 crypto <32hex>|off    设/关加密密钥
+led [stream on|off]   查当前灯态 / 开关键态推送（上位机同步用，默认开）
 wifi [off]            开/关 WiFi 维护模式
 scan                  扫邻居 + 最近收包信号
 ping <node_id>        测通断/RTT

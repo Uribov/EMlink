@@ -1,11 +1,13 @@
 (function () {
   'use strict';
 
-  const POLL_INTERVAL = 150;
+  // 35ms 是为了跟住板子 100ms 半周期的快闪，避免拍频；poll 只读后端内存增量与最近灯态，不发串口命令。
+  const POLL_INTERVAL = 35;
   const MAX_LINES = 5000;
   const FALLBACK_EDITOR = '还没有输出 —— 点上面的快捷命令试试';
   const SF_MAX_BY_BW = { 125: 9, 250: 10, 500: 11 };
   const PARAM_KEYS = ['role', 'node_id', 'freq', 'sf', 'bw', 'cr', 'power', 'auto_wifi_s', 'crypto'];
+  const LED_TICK_MS = 50;
 
   const state = {
     ports: [],
@@ -172,6 +174,8 @@
     if (typeof tab.configLoaded !== 'boolean') tab.configLoaded = false;
     if (typeof tab.configLoading !== 'boolean') tab.configLoading = false;
     if (!('config' in tab)) tab.config = null;
+    if (!tab.led || typeof tab.led !== 'object') tab.led = {};
+    if (!('state' in tab.led)) tab.led.state = null;
   }
 
   function sfMaxForBw(bw) {
@@ -634,6 +638,7 @@
     renderOutput(tab);
     setDiagEnabled(tab.status === 'connected');
     setParamsEnabled(tab.status === 'connected' && !tab.configLoading);
+    updateLedTriangle();
   }
 
   function renderEmptyState() {
@@ -685,6 +690,8 @@
       await call('api_disconnect', tab.id);
       tab.status = 'closed';
       tab.note = '';
+      ensureTabState(tab);
+      tab.led.state = null;
       appendLine(tab, '[已断开]');
       renderAll();
     } catch (err) {
@@ -725,6 +732,7 @@
       tab.configLoaded = false;
     }
     ensureTabState(tab);
+    tab.led.state = null;
     state.activeId = id;
     renderAll();
     appendLine(tab, '> 已连接 ' + port + ' · 115200');
@@ -801,6 +809,15 @@
     }
   }
 
+  function sameLed(a, b) {
+    if (!a || !b) return a === b;
+    return a.mode === b.mode &&
+      Number(a.r) === Number(b.r) &&
+      Number(a.g) === Number(b.g) &&
+      Number(a.b) === Number(b.b) &&
+      Number(a.half) === Number(b.half);
+  }
+
   async function pollAll() {
     const ids = state.order.slice();
     if (ids.length === 0) return;
@@ -843,6 +860,13 @@
         }
         changed = true;
       }
+      ensureTabState(tab);
+      if (data.led === null) {
+        tab.led.state = null;
+      } else if (data.led && typeof data.led === 'object' &&
+                 !sameLed(tab.led.state, data.led)) {
+        tab.led.state = data.led;
+      }
     }
     if (changed) renderAll();
   }
@@ -859,6 +883,62 @@
 
   function activeTab() {
     return state.tabs.get(state.activeId);
+  }
+
+  function setTriStyle(color, period, blinking) {
+    const triangle = $('led-tri');
+    if (!triangle) return;
+    if (triangle.dataset.color !== color) {
+      triangle.dataset.color = color;
+      triangle.style.setProperty('--tri-color', color);
+    }
+    const periodValue = period > 0 ? period + 'ms' : '';
+    if (triangle.dataset.period !== periodValue) {
+      triangle.dataset.period = periodValue;
+      if (periodValue) triangle.style.setProperty('--tri-period', periodValue);
+      else triangle.style.removeProperty('--tri-period');
+    }
+    const wantBlink = !!blinking;
+    if (triangle.classList.contains('blink') !== wantBlink) {
+      triangle.classList.toggle('blink', wantBlink);
+    }
+  }
+
+  function applyLedState(tab) {
+    const led = tab.led.state;
+    if (!led) return false;
+    const r = Number(led.r);
+    const g = Number(led.g);
+    const b = Number(led.b);
+    const half = Number(led.half);
+    if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) {
+      return false;
+    }
+    const color = 'rgb(' + r + ',' + g + ',' + b + ')';
+    if (r !== 0 || g !== 0 || b !== 0) tab.led.lastColor = color;
+
+    if (Number.isFinite(half) && half > 0) {
+      /* 灭帧的黑色不能当动画颜色，沿用上一次非黑的亮帧颜色 */
+      const blinkColor = (r === 0 && g === 0 && b === 0)
+        ? (tab.led.lastColor || 'var(--dim)')
+        : color;
+      setTriStyle(blinkColor, half * 2, true);
+    } else {
+      setTriStyle(color, 0, false);
+    }
+    return true;
+  }
+
+  function updateLedTriangle() {
+    const tab = state.tabs.get(state.activeId);
+    if (!tab || tab.status !== 'connected') {
+      setTriStyle('var(--dim)', 0, false);
+      return;
+    }
+    ensureTabState(tab);
+    if (!applyLedState(tab)) {
+      setTriStyle('var(--dim)', 0, false);
+    }
   }
 
   function bindParamEvents() {
@@ -1011,6 +1091,8 @@
     setParamsEnabled(false);
     refreshPorts();
     startPolling();
+    updateLedTriangle();
+    setInterval(updateLedTriangle, LED_TICK_MS);
     renderAll();
   }
 

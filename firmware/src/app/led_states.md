@@ -60,6 +60,19 @@
 > 亮度：维护模式用 **60**（常规 20），退出后显式恢复 20。
 > 离线预览：`~/.local/bin/emlink_rainbow_preview.py`（同一套算法生成色卡 PNG，不上板即可核对顺序）。
 
+## 对外查询与推送（2026-10-18，EM Studio 同步用）
+
+板子把"此刻灯态"对外暴露两种方式，**都只读、不改灯的行为**：
+
+| 方式 | 形式 | 说明 |
+|---|---|---|
+| **查询** | CLI `led` | 单行：`led mode=<m> color=r,g,b half=<ms> phase=<ms>`；`mode` ∈ `boot\|rainbow\|fault\|lost\|idle\|ok\|off`；`half=0` 表示常亮 |
+| **推送** | `#led mode=… color=… half=…` | **灯态变化时主动推**（前缀 `#` 便于上位机过滤）；最小间隔 50ms 防抖；**默认开**，`led stream off` 可关 |
+
+- 推送用 `usb_cli_write()`（与 CLI 共用 `g_usb_tx_lock`），不会插进 CLI 输出中间；
+- 记录的是**这一帧实际画出去的颜色**（含"灭"帧的 `0,0,0`），所以上位机照抄即可与板子一致；
+- EM Studio 侧：后端在**入输出队列之前**拦下 `#led` 行（**不显示在诊断台，避免刷屏**），只用于驱动诊断台标题旁的倒立三角。
+
 ## 实现要点
 
 1. 驱动：`Adafruit_NeoPixel strip(1, PIN_LED, NEO_GRB + NEO_KHZ800)`（单颗灯）

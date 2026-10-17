@@ -12,6 +12,38 @@ from .cli_client import CliClient
 from .dispatcher import Dispatcher
 
 
+def _to_int(text):
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_led_line(line):
+    """解析板子主动推送的灯态行，字段缺失或非法时对应值为 None。"""
+    result = {"mode": None, "r": None, "g": None, "b": None, "half": None}
+    text = (line or "").strip()
+    if text.startswith("#led"):
+        text = text[4:].strip()
+    for token in text.split():
+        key, sep, value = token.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        value = value.strip()
+        if key == "mode":
+            result["mode"] = value or None
+        elif key == "color":
+            parts = value.split(",")
+            if len(parts) == 3:
+                result["r"] = _to_int(parts[0])
+                result["g"] = _to_int(parts[1])
+                result["b"] = _to_int(parts[2])
+        elif key == "half":
+            result["half"] = _to_int(value)
+    return result
+
+
 class SerialLink:
     def __init__(self, device_id, port, baud=115200):
         self.device_id = device_id
@@ -26,6 +58,7 @@ class SerialLink:
         self._lines = []
         self._status = "closed"
         self._note = ""
+        self.led_state = None
 
         self.dispatcher = Dispatcher(self._handle_line)
         self.cli = CliClient(self._write)
@@ -50,6 +83,7 @@ class SerialLink:
             self._serial = ser
         self.cli.clear()
         self.dispatcher.reset()
+        self.led_state = None
         self._status = "connected"
         self._note = ""
         self._running = True
@@ -123,6 +157,10 @@ class SerialLink:
                 pass
 
     def _handle_line(self, line):
+        # 板子的灯态推送（F8a）：自己消化，不进诊断台输出，也不参与命令响应配对。
+        if line.startswith("#led "):
+            self.led_state = parse_led_line(line)
+            return
         self._append_line(line)
         self.cli.on_rx_line(line)
 
