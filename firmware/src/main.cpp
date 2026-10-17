@@ -68,6 +68,9 @@ void setup() {
     delay(200);
     Serial.println("\n===== LoRa Mesh 数传 boot =====");
 
+    stats_led_init();    // 尽早初始化 LED：启动序列从这一刻起算（S14）
+    stats_led_start();   // 独立 20ms 任务驱动，射频探测阻塞期间照样闪
+
     // 1. 配置
     nvs_cfg_load(&g_cfg);
     // 首次上电（NVS 里 node_id=0）：从芯片 MAC 派生并落盘，避免全网默认 1 号撞号
@@ -131,6 +134,7 @@ void loop() {
     // P1-6：不再在此回显——Serial 的读已由 usb_task 独占（单口分流的唯一读者），
     // 这里再读会抢走本该给 CLI 的字节。通路是否正常由 CLI 自身体现（敲 help 有回显）。
     ota_boot_confirm_tick();   // P1-5：系统健康后向 bootloader 确认固件（取消回滚）
+    ota_auto_tick();           // 上电 auto_wifi_s 秒且无链路活动 → 自动进 WiFi 维护模式（S5）
 
     // EV_CFG_CHANGED：CLI save 后置位 → 重载内存镜像并提示需 reset
     if (evg && (xEventGroupGetBits(evg) & EV_CFG_CHANGED)) {

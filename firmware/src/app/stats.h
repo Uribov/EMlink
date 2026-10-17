@@ -32,7 +32,7 @@ enum led_role_t {
     LED_ROLE_GCS   = 0,  // 绿
     LED_ROLE_AIR   = 1,  // 蓝
     LED_ROLE_RELAY = 2,  // 青（绿+蓝）
-    LED_ROLE_UNSET = 3,  // 橙（红+绿，未配置）
+    LED_ROLE_UNSET = 3,  // 白（未配置，S12/2026-10-17 用户定）
 };
 
 // 健康节奏（节奏 = 健康）
@@ -45,9 +45,10 @@ enum led_health_t {
     LED_HEALTH_RESET  = 5,  // 红闪1下（看门狗复位）
 };
 
-// 更新 LED（颜色=角色，节奏=健康；fault/reset 整灯红覆盖角色色）
-// 完整颜色×节奏映射表见 led_states.md
-void stats_update_led(led_role_t role, led_health_t health);
+// S14：LED 初始化与独立任务
+void stats_led_init(void);    // 尽早调用（setup 开头）：只建 NeoPixel
+void stats_led_start(void);   // 启动 20ms LED 任务；之后灯不依赖 loop
+void stats_led_tick(void);    // 保留（任务内部调用；状态机本体）
 
 // 启动统计任务（内部 xTaskCreate stats_task_func，任务函数为模块内 static）
 void stats_start(void);
