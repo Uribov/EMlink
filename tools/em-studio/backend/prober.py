@@ -121,6 +121,190 @@ def parse_status(lines):
     return layers
 
 
+_DIAG_RULES = (
+    {
+        "layer": "驱动层",
+        "level": "err",
+        "text": "驱动层：射频模块未检测到 —— 检查 E220 排线/供电，装好后 reset",
+        "kind": "contains",
+        "need": ("模块", "未检测到"),
+    },
+    {
+        "layer": "驱动层",
+        "level": "err",
+        "text": "驱动层：射频未就绪",
+        "kind": "ready_false",
+    },
+    {
+        "layer": "中间层",
+        "level": "err",
+        "text": "中间层：加密认证失败 —— 两端密钥不一致",
+        "kind": "count",
+        "tokens": ("认证失败",),
+    },
+    {
+        "layer": "中间层",
+        "level": "err",
+        "text": "中间层：两端协议版本不一致 —— 需刷同一版本固件",
+        "kind": "count",
+        "tokens": ("协议不一致",),
+    },
+    {
+        "layer": "中间层",
+        "level": "warn",
+        "text": "中间层：重放丢弃计数非零 —— 检查时间窗/重放保护",
+        "kind": "count",
+        "tokens": ("重放丢弃",),
+    },
+    {
+        "layer": "中间层",
+        "level": "warn",
+        "text": "中间层：出现环路或重复包（TTL/去重计数非零）",
+        "kind": "count_any",
+        "tokens": ("TTL丢弃", "去重淘汰"),
+    },
+    {
+        "layer": "中间层",
+        "level": "warn",
+        "text": "中间层：发送背压丢包 —— 链路速率/队列容量不足",
+        "kind": "count",
+        "tokens": ("发送队列丢",),
+    },
+    {
+        "layer": "应用层",
+        "level": "err",
+        "text": "应用层：sysid 与 node_id 同时冲突 —— 多节点重复配置",
+        "kind": "count_all",
+        "tokens": ("sysid撞号", "node_id撞号"),
+    },
+    {
+        "layer": "应用层",
+        "level": "err",
+        "text": "应用层：sysid 撞号 —— 多节点用了同一 sysid",
+        "kind": "count",
+        "tokens": ("sysid撞号",),
+    },
+    {
+        "layer": "应用层",
+        "level": "err",
+        "text": "应用层：node_id 撞号 —— 多节点用了同一 node_id",
+        "kind": "count",
+        "tokens": ("node_id撞号",),
+    },
+    {
+        "layer": "系统",
+        "level": "warn",
+        "text": "系统：曾发生看门狗复位 —— 查看启动日志定位卡死模块",
+        "kind": "count",
+        "tokens": ("wdt复位",),
+    },
+    {
+        "layer": "射频参数",
+        "level": "warn",
+        "text": "射频参数：ADR 未对齐（SF/带宽未协商一致）",
+        "kind": "adr_false",
+    },
+)
+
+
+def _first_number(text):
+    match = _NUMBER.search(str(text or ""))
+    if not match:
+        return None
+    try:
+        return float(match.group(0))
+    except ValueError:
+        return None
+
+
+def _item_text(item):
+    label = str(item.get("label") or "")
+    value = str(item.get("value") or "")
+    return label, value, label + " " + value
+
+
+def _count_positive(items, token):
+    for item in items:
+        label, value, _ = _item_text(item)
+        if token not in label and token not in value:
+            continue
+        number = _first_number(value)
+        if number is None:
+            number = _first_number(label)
+        if number is not None and number > 0:
+            return True
+    return False
+
+
+def _match_rule(rule, items):
+    kind = rule.get("kind")
+    if kind == "contains":
+        first, second = rule.get("need", ("", ""))
+        return any(
+            first in item_text and second in item_text
+            for item_text in (_item_text(item)[2] for item in items)
+        )
+    if kind == "ready_false":
+        for item in items:
+            label, value, _ = _item_text(item)
+            if "就绪" in label and "否" in value:
+                return True
+        return False
+    if kind == "adr_false":
+        adr_off = False
+        for item in items:
+            label, value, _ = _item_text(item)
+            if "ADR 对齐" in label and "否" in value:
+                adr_off = True
+        if not adr_off:
+            return False
+        # 单机（没有任何邻接活动）时 ADR 无从对齐，属于正常状态，不该报警。
+        return any(
+            _count_positive(items, token)
+            for token in ("信标", "多跳", "多锚点")
+        )
+    if kind == "count":
+        return any(_count_positive(items, token) for token in rule.get("tokens", ()))
+    if kind == "count_any":
+        return any(_count_positive(items, token) for token in rule.get("tokens", ()))
+    if kind == "count_all":
+        return all(_count_positive(items, token) for token in rule.get("tokens", ()))
+    return False
+
+
+def diagnose(layers):
+    """把 status 解析结果翻译成人话结论。
+
+    返回 [{"layer": "驱动层", "level": "err|warn", "text": "人话结论"}]。
+    err 在前、warn 在后；同一层只保留规则表里最靠前（最具体）的一条。
+    没有命中任何规则时返回空列表，由前端隐藏归因行。
+    """
+    items = []
+    for layer in layers or []:
+        if not isinstance(layer, dict):
+            continue
+        for item in layer.get("items") or []:
+            if isinstance(item, dict):
+                items.append(item)
+
+    verdicts = []
+    seen_layers = set()
+    for rule in _DIAG_RULES:
+        if rule["layer"] in seen_layers:
+            continue
+        if not _match_rule(rule, items):
+            continue
+        seen_layers.add(rule["layer"])
+        verdicts.append({
+            "layer": rule["layer"],
+            "level": rule["level"],
+            "text": rule["text"],
+        })
+
+    verdicts.sort(key=lambda item: 0 if item.get("level") == "err" else 1)
+    return verdicts
+
+
 def read_status(link):
     """静默发 status 并解析。返回 (data, error)。
 

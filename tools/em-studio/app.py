@@ -3,7 +3,9 @@
 pywebview 入口 + JS 桥。桥方法统一返回 {"ok": bool, "data": ..., "error": str}。
 """
 
+import json
 import os
+import re
 import threading
 import time
 
@@ -45,6 +47,150 @@ def _payload_bytes(text, hex_mode):
         return bytes.fromhex(cleaned)
     except ValueError:
         raise ValueError("hex payload 含非法字符")
+
+
+def _fmt_clock(ts, fallback):
+    if ts is None or ts == "":
+        return fallback
+    try:
+        number = float(ts)
+        if number > 1e11:
+            number /= 1000.0
+        return time.strftime("%H:%M:%S", time.localtime(number))
+    except (TypeError, ValueError, OSError, OverflowError):
+        return fallback
+
+
+def _status_text(status):
+    if not isinstance(status, dict):
+        return ""
+    raw = str(status.get("raw") or "").strip()
+    if raw:
+        return raw
+    lines = []
+    for layer in status.get("layers") or []:
+        if not isinstance(layer, dict):
+            continue
+        lines.append("--- {} ---".format(layer.get("name") or ""))
+        for item in layer.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or "")
+            value = str(item.get("value") or "")
+            lines.append("{}: {}".format(label, value) if value else label)
+    return "\n".join(lines)
+
+
+def _status_meta(status):
+    text = _status_text(status)
+
+    def grab(pattern):
+        match = re.search(pattern, text)
+        return match.group(1).strip() if match else ""
+
+    return {
+        "role": grab(r"角色\s*[:：=]\s*([^\s]*)"),
+        "node_id": grab(r"node_id\s*[=:：]\s*(\d+)"),
+        "sysid": grab(r"sysid\s*[=:：]\s*(\d+)"),
+        "firmware": grab(r"(?:固件|firmware)\s*[:：=]\s*([^\s]+)"),
+    }
+
+
+def _console_entries(lines):
+    entries = []
+    for line in list(lines or [])[-5000:]:
+        if isinstance(line, dict):
+            ts = line.get("ts")
+            text = line.get("text")
+        else:
+            ts = None
+            text = line
+        entries.append({
+            "ts": ts,
+            "text": "" if text is None else str(text),
+        })
+    return entries
+
+
+def _frames_for_export(frames):
+    result = []
+    for frame in list(frames or [])[-200:]:
+        if not isinstance(frame, dict):
+            continue
+        item = mav_raw.frame_to_json(frame)
+        item.pop("_k", None)
+        item.pop("payload", None)
+        result.append(item)
+    return result
+
+
+def _build_export_txt(now, device, meta, status, console, frames):
+    clock = now.split(" ")[-1]
+    lines = [
+        "=== EM Studio 会话日志 ===",
+        "导出时间: {}".format(now),
+        "端口: {}   序列号: {}   波特率: {}".format(
+            device.get("port") or "-",
+            device.get("serial") or "-",
+            device.get("baud") or "-",
+        ),
+        "角色: {}   node_id: {}   sysid: {}   固件: {}".format(
+            meta.get("role") or "-",
+            meta.get("node_id") or "-",
+            meta.get("sysid") or "-",
+            meta.get("firmware") or "-",
+        ),
+        "",
+        "--- 状态快照 ---",
+        _status_text(status) or "（无状态快照）",
+        "",
+        "--- 诊断台输出 ---",
+    ]
+    if console:
+        for entry in console:
+            lines.append("[{}] {}".format(
+                _fmt_clock(entry.get("ts"), clock),
+                entry.get("text") or "",
+            ))
+    else:
+        lines.append("（无输出）")
+
+    lines.extend(["", "--- MAVLink 解码消息（最近 200 条）---"])
+    if frames:
+        for frame in frames:
+            payload_text = json.dumps(
+                str(frame.get("payload_text") or ""),
+                ensure_ascii=False,
+            )
+            lines.append(
+                "[{}] msgid={} sys={} comp={} len={} crc={} payload_text={}".format(
+                    _fmt_clock(frame.get("ts"), clock),
+                    frame.get("msgid", "-"),
+                    frame.get("sysid", "-"),
+                    frame.get("compid", "-"),
+                    frame.get("len", "-"),
+                    "OK" if frame.get("crc_ok") else "ERR",
+                    payload_text,
+                )
+            )
+    else:
+        lines.append("（无消息）")
+    return "\n".join(lines) + "\n"
+
+
+def _build_export_json(now, device, meta, status, console, frames):
+    status_data = {
+        "layers": status.get("layers") if isinstance(status, dict) else [],
+        "raw": status.get("raw") if isinstance(status, dict) else "",
+    }
+    payload = {
+        "exported_at": now,
+        "device": dict(device, **meta),
+        "status": status_data,
+        "console": console,
+        "frames": frames,
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
 
 class Api:
@@ -360,7 +506,73 @@ class Api:
             return self._err(f"读状态失败：{exc}")
         if not data:
             return self._err(note or "板子未返回状态")
+        data["verdicts"] = prober.diagnose(data.get("layers"))
         return {"ok": True, "data": data, "error": note or ""}
+
+    def api_export_log(
+        self,
+        device_id,
+        kind="txt",
+        console_lines=None,
+        frames=None,
+        status=None,
+        device=None,
+    ):
+        kind = str(kind or "txt").lower()
+        if kind not in ("txt", "json"):
+            return self._err("导出类型必须是 txt 或 json")
+
+        link = self._get(device_id)
+        meta = _status_meta(status)
+        info = device if isinstance(device, dict) else {}
+        device_out = {
+            "port": info.get("port") or (getattr(link, "port", "") if link else ""),
+            "serial": info.get("serial") or "",
+            "baud": info.get("baud") or (getattr(link, "baud", 115200) if link else 115200),
+        }
+        console = _console_entries(console_lines)
+        frame_list = _frames_for_export(frames)
+
+        now = time.strftime("%Y-%m-%d %H:%M:%S")
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        node_label = re.sub(r"[^0-9A-Za-z_-]+", "", str(meta.get("node_id") or ""))
+        if not node_label:
+            node_label = "unknown"
+        default_name = "EMStudio_{}_{}.{}".format(node_label, stamp, kind)
+
+        directory = os.path.expanduser("~")
+        if not os.path.isdir(directory):
+            directory = ""
+        file_types = (
+            ("文本 (*.txt)",) if kind == "txt" else ("JSON (*.json)",)
+        )
+        try:
+            window = webview.windows[0]
+            selected = window.create_file_dialog(
+                webview.SAVE_DIALOG,
+                directory=directory,
+                save_filename=default_name,
+                file_types=file_types,
+            )
+        except Exception as exc:
+            return self._err("打开保存对话框失败：{}".format(exc))
+
+        if isinstance(selected, (list, tuple)):
+            selected = selected[0] if selected else ""
+        if not selected:
+            return {"ok": False, "data": None, "error": "cancelled"}
+        path = os.path.abspath(str(selected))
+
+        if kind == "txt":
+            text = _build_export_txt(now, device_out, meta, status, console, frame_list)
+        else:
+            text = _build_export_json(now, device_out, meta, status, console, frame_list)
+        try:
+            with open(path, "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(text)
+        except OSError as exc:
+            return self._err("写入文件失败：{}".format(exc))
+        return self._ok({"path": path})
 
     def api_get_config(self, device_id):
         link = self._get(device_id)

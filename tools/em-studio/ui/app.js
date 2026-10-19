@@ -84,9 +84,13 @@
 
   function appendLine(tab, text) {
     text = typeof text === 'string' ? text : String(text);
+    ensureTabState(tab);
     tab.lines.push(text);
+    tab.lineTs.push(Date.now());
     if (tab.lines.length > MAX_LINES) {
-      tab.lines.splice(0, tab.lines.length - MAX_LINES);
+      const overflow = tab.lines.length - MAX_LINES;
+      tab.lines.splice(0, overflow);
+      tab.lineTs.splice(0, Math.min(overflow, tab.lineTs.length));
     }
     if (tab.id !== state.activeId) return;
     const out = $('diag-output');
@@ -182,12 +186,49 @@
     }
   }
 
+  function renderVerdict(tab) {
+    const el = $('diag-verdict');
+    if (!el) return;
+    const list = tab && tab.statusData && Array.isArray(tab.statusData.verdicts)
+      ? tab.statusData.verdicts
+      : [];
+    if (!list.length) {
+      el.hidden = true;
+      el.title = '';
+      return;
+    }
+
+    const first = list[0] || {};
+    const level = first.level === 'err' ? 'err' : 'warn';
+    const summary = (first.text || '') + (list.length > 1 ? ' +' + (list.length - 1) : '');
+    const title = list.map(function (item) { return item.text || ''; }).join('\n');
+
+    let dot = el.querySelector('.verdict-dot');
+    let text = el.querySelector('.verdict-text');
+    if (!dot || !text) {
+      el.innerHTML = '';
+      dot = document.createElement('span');
+      dot.className = 'verdict-dot';
+      text = document.createElement('span');
+      text.className = 'verdict-text';
+      el.appendChild(dot);
+      el.appendChild(text);
+    }
+
+    const cls = 'verdict ' + level;
+    if (el.className !== cls) el.className = cls;
+    if (text.textContent !== summary) text.textContent = summary;
+    if (el.title !== title) el.title = title;
+    el.hidden = false;
+  }
+
   function renderStatusCards(tab) {
     const box = $('status-cards');
     if (!box) return;
     const data = tab && tab.statusData;
     if (!data || !Array.isArray(data.layers) || data.layers.length === 0) {
       box.hidden = true;
+      renderVerdict(null);
       return;
     }
     box.hidden = false;
@@ -254,6 +295,7 @@
     for (const [layerName, card] of existing) {
       if (!wanted.has(layerName)) card.remove();
     }
+    renderVerdict(tab);
   }
 
   async function pollStatus() {
@@ -375,6 +417,8 @@
     if (!('config' in tab)) tab.config = null;
     if (!tab.led || typeof tab.led !== 'object') tab.led = {};
     if (!('state' in tab.led)) tab.led.state = null;
+    if (!Array.isArray(tab.lines)) tab.lines = [];
+    if (!Array.isArray(tab.lineTs)) tab.lineTs = [];
     if (!('statusData' in tab)) tab.statusData = null;
     if (typeof tab.statusStale !== 'boolean') tab.statusStale = false;
     if (typeof tab.statusError !== 'string') tab.statusError = '';
@@ -1064,6 +1108,7 @@
       stopStatusPolling();
       const cards = $('status-cards');
       if (cards) cards.hidden = true;
+      renderVerdict(null);
       return;
     }
 
@@ -1099,6 +1144,7 @@
       stopStatusPolling();
       const cards = $('status-cards');
       if (cards) cards.hidden = true;
+      renderVerdict(null);
       renderMavPanel(tab);
       return;
     }
@@ -1115,6 +1161,7 @@
       stopStatusPolling();
       const cards = $('status-cards');
       if (cards) cards.hidden = true;
+      renderVerdict(null);
     }
   }
 
@@ -1397,6 +1444,46 @@
 
   function activeTab() {
     return state.tabs.get(state.activeId);
+  }
+
+  async function exportSession(kind) {
+    const tab = activeTab();
+    if (!tab) {
+      showToast('先连接设备再导出', true);
+      return;
+    }
+    ensureTabState(tab);
+
+    const consoleLines = tab.lines.map(function (text, index) {
+      return { ts: tab.lineTs[index] || null, text: text };
+    });
+    const frames = tab.frames.slice(-MAV_MAX_FRAMES);
+    const device = {
+      port: tab.port,
+      serial: tab.serial,
+      baud: tab.baud,
+    };
+
+    try {
+      const res = await callRaw(
+        'api_export_log',
+        tab.id,
+        kind,
+        consoleLines,
+        frames,
+        tab.statusData || null,
+        device
+      );
+      if (!res || res.ok !== true) {
+        if (res && res.error === 'cancelled') return;
+        throw new Error((res && res.error) || '导出失败');
+      }
+      const path = res.data && res.data.path;
+      showToast('已导出到 ' + (path || '文件'));
+    } catch (err) {
+      if (err && err.message === 'cancelled') return;
+      showToast(err.message || '导出失败', true);
+    }
   }
 
   function setTriStyle(color, period, blinking) {
@@ -1975,6 +2062,13 @@
         sendCommand(button.dataset.cmd);
       });
     }
+
+    $('btn-export-log').addEventListener('click', function () {
+      exportSession('txt');
+    });
+    $('btn-export-json').addEventListener('click', function () {
+      exportSession('json');
+    });
 
     const modeButtons = document.querySelectorAll('.mode-btn');
     for (const button of modeButtons) {

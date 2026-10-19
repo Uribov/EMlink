@@ -177,7 +177,9 @@
         <button class="btn compact ghost" type="button" data-cmd="get">get</button>
         <button class="btn compact ghost" type="button" data-cmd="ver">ver</button>
         <button class="btn compact ghost" type="button" data-cmd="help">help</button>
+        <button id="btn-export-log" class="btn compact ghost export-log" type="button">导出日志</button>
       </div>
+      <div id="diag-verdict" class="verdict" hidden></div>
       <div id="status-cards" class="status-cards" hidden></div>
       <div id="diag-output" class="output" role="log" aria-live="polite"></div>
       <form id="cmd-form" class="cmd-row" autocomplete="off">
@@ -218,6 +220,7 @@
           <input type="checkbox" id="mav-heartbeat"> 模拟心跳（1 秒）
         </label>
         <button id="btn-mav-request" class="btn compact ghost" type="button">请求参数</button>
+        <button id="btn-export-json" class="btn compact ghost" type="button">导出 JSON</button>
         <span id="mav-count" class="mav-count">0 帧</span>
       </div>
 

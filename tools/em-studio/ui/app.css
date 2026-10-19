@@ -332,3 +332,12 @@ font-size:11px;color:var(--muted)}
 .flash-status.ok{color:var(--ok)}
 .flash-status.fail{color:var(--err)}
 .flash-build-note{margin-top:6px}
+
+/* ---- D5：诊断归因行 + 会话日志导出（只做加法，不加动效） ---- */
+.quick .btn.export-log{margin-left:auto}
+.verdict{display:flex;align-items:center;gap:8px;flex:none;margin-bottom:8px;
+font-size:11px;line-height:1.5;color:var(--text)}
+.verdict-dot{flex:none;width:6px;height:6px;border-radius:50%;background:#eab308}
+.verdict.err .verdict-dot{background:var(--err)}
+.verdict.warn .verdict-dot{background:#eab308}
+.verdict-text{min-width:0;overflow-wrap:anywhere}
