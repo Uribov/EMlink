@@ -227,9 +227,15 @@ class Api:
 
     def _install_signal_handlers(self):
         try:
-            signal.signal(signal.SIGUSR1, self._on_sigusr1)
+            # ⚠️ 绝对不能用 SIGUSR1（= signal 10）：WebKit / JavaScriptCore 自己用
+            # 这个信号做 GC 通知，抢占后日志会报 "Overriding existing handler for
+            # signal 10"，JSC 的垃圾回收失效 → 程序崩溃退出（实测踩过）。
+            # 改用 Linux 实时信号 SIGRTMIN+3，不与任何常规信号冲突。
+            rtsig = getattr(signal, "SIGRTMIN", None)
+            self._release_signum = (rtsig + 3) if rtsig is not None else signal.SIGUSR2
+            signal.signal(self._release_signum, self._on_sigusr1)
         except (AttributeError, OSError, ValueError) as exc:
-            self._log(f"SIGUSR1 注册失败：{exc}")
+            self._log(f"外部释放信号注册失败：{exc}")
 
     def _on_sigusr1(self, signum, frame):
         self._release_event.set()
