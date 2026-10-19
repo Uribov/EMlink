@@ -15,6 +15,9 @@
       <select id="port-select" aria-label="串口端口"></select>
       <button id="btn-refresh" class="btn compact" type="button" title="重新枚举串口">刷新</button>
       <button id="btn-connect" class="btn compact primary" type="button">连接</button>
+      <label class="ext-release" title="勾选时，外部执行 kill -USR1 会让程序断开所有串口（程序不退出）">
+        <input type="checkbox" id="ext-release" checked> 允许外部释放串口
+      </label>
     </div>
     <div class="mode-seg" role="group" aria-label="模式">
       <button class="mode-btn active" type="button" data-mode="cli">配置</button>

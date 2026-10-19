@@ -3,9 +3,11 @@
 pywebview 入口 + JS 桥。桥方法统一返回 {"ok": bool, "data": ..., "error": str}。
 """
 
+import atexit
 import json
 import os
 import re
+import signal
 import threading
 import time
 
@@ -202,6 +204,77 @@ class Api:
         self._flash_lock = threading.Lock()
         self._flash_state = {}
         self._flash_active = None
+        self._allow_external_release = True
+        self._release_event = threading.Event()
+        self._pid_path = os.path.expanduser("~/em-studio.pid")
+        self._window = None
+        self._install_signal_handlers()
+        self._write_pid_file()
+        atexit.register(self._remove_pid_file)
+        self._release_thread = threading.Thread(
+            target=self._release_worker,
+            name="em-external-release",
+            daemon=True,
+        )
+        self._release_thread.start()
+
+    def attach_window(self, window):
+        self._window = window
+
+    @staticmethod
+    def _log(message):
+        print(f"[em-studio] {message}", flush=True)
+
+    def _install_signal_handlers(self):
+        try:
+            signal.signal(signal.SIGUSR1, self._on_sigusr1)
+        except (AttributeError, OSError, ValueError) as exc:
+            self._log(f"SIGUSR1 注册失败：{exc}")
+
+    def _on_sigusr1(self, signum, frame):
+        self._release_event.set()
+
+    def _write_pid_file(self):
+        try:
+            with open(self._pid_path, "w", encoding="ascii") as handle:
+                handle.write(str(os.getpid()))
+        except OSError as exc:
+            self._log(f"写 PID 文件失败：{exc}")
+
+    def _remove_pid_file(self):
+        try:
+            with open(self._pid_path, "r", encoding="ascii") as handle:
+                current = handle.read().strip()
+            if current == str(os.getpid()):
+                os.remove(self._pid_path)
+        except (OSError, ValueError):
+            pass
+
+    def _release_worker(self):
+        while True:
+            self._release_event.wait()
+            self._release_event.clear()
+            if not self._allow_external_release:
+                self._log("收到 SIGUSR1，但「允许外部释放串口」已关闭，忽略")
+                continue
+
+            with self._lock:
+                links = list(self._links.values())
+            for link in links:
+                try:
+                    link.close()
+                except Exception as exc:
+                    self._log(f"释放串口 {getattr(link, 'port', '?')} 失败：{exc}")
+            self._log(f"收到 SIGUSR1，已释放 {len(links)} 个串口")
+
+            window = self._window
+            if window is not None:
+                try:
+                    window.evaluate_js(
+                        "window.__emExternalRelease && window.__emExternalRelease()"
+                    )
+                except Exception as exc:
+                    self._log(f"通知前端失败：{exc}")
 
     @staticmethod
     def _ok(data):
@@ -644,7 +717,19 @@ class Api:
                 self._port_ids.pop(link.port, None)
         return self._ok(True)
 
+    def api_set_external_release(self, enabled):
+        self._allow_external_release = bool(enabled)
+        return self._ok(True)
+
+    def api_get_external_release(self):
+        return self._ok({
+            "enabled": self._allow_external_release,
+            "pid": os.getpid(),
+            "pid_path": self._pid_path,
+        })
+
     def shutdown(self):
+        self._remove_pid_file()
         with self._lock:
             links = list(self._links.values())
             self._links.clear()
@@ -665,6 +750,7 @@ def main():
         height=760,
         min_size=(900, 600),
     )
+    api.attach_window(window)
     try:
         window.events.closing += api.shutdown
     except Exception:

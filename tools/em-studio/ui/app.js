@@ -76,7 +76,8 @@
     const el = document.createElement('div');
     el.className = 'line';
     if (text.startsWith('> ')) el.classList.add('echo');
-    if (text.startsWith('[')) el.classList.add('sys');
+    if (text.startsWith('[外部请求]')) el.classList.add('ext');
+    else if (text.startsWith('[')) el.classList.add('sys');
     el.textContent = text === '' ? '\u00a0' : text;
     if (!animate) el.style.animation = 'none';
     return el;
@@ -1237,6 +1238,50 @@
     }
   }
 
+  async function loadExternalRelease() {
+    try {
+      const data = await call('api_get_external_release');
+      const box = $('ext-release');
+      if (box && data) box.checked = !!data.enabled;
+    } catch (err) {
+      // 桥未就绪时保持 HTML 默认值，不影响主流程
+    }
+  }
+
+  async function saveExternalRelease(checked) {
+    try {
+      await call('api_set_external_release', !!checked);
+    } catch (err) {
+      const box = $('ext-release');
+      if (box) box.checked = !checked;
+      showToast('保存开关失败：' + err.message, true);
+    }
+  }
+
+  function releaseExternalPorts() {
+    let released = 0;
+    for (const tab of state.tabs.values()) {
+      ensureTabState(tab);
+      if (tab.status === 'connected') released += 1;
+      tab.status = 'closed';
+      tab.note = '';
+      tab.led.state = null;
+      tab.statusData = null;
+      tab.statusStale = false;
+      tab.statusError = '';
+      tab.configLoaded = false;
+      stopHeartbeat(tab);
+      appendLine(tab, '[外部请求] 已释放串口');
+    }
+    stopStatusPolling();
+    renderAll();
+    if (released > 0) {
+      showToast('外部请求：已释放 ' + released + ' 个串口');
+    }
+  }
+
+  window.__emExternalRelease = releaseExternalPorts;
+
   async function connectPort(port) {
     const data = await call('api_connect', port, 115200);
     const id = data && data.device_id;
@@ -2112,6 +2157,10 @@
     });
     $('btn-flash').addEventListener('click', startFlash);
 
+    $('ext-release').addEventListener('change', function () {
+      saveExternalRelease(this.checked);
+    });
+
     bindParamEvents();
   }
 
@@ -2128,6 +2177,7 @@
     setParamsEnabled(false);
     refreshPorts();
     loadDefaultFirmware();
+    loadExternalRelease();
     startPolling();
     updateLedTriangle();
     setInterval(updateLedTriangle, LED_TICK_MS);

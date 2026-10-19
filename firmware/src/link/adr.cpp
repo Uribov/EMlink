@@ -11,6 +11,8 @@
 #include "../service/nvs_cfg.h"
 #include "../link/frame_codec.h"
 
+static volatile bool     g_adr_enabled = true; // ADR 总开关（adr_init 从 NVS adr_en 读）
+static volatile uint8_t  g_cfg_sf = ADR_SF_FAST; // NVS 配置的 SF（ADR 关闭时固定用它）
 static volatile uint8_t  g_sf = ADR_SF_SLOW;   // 当前 SF（默认先停慢速等 BEACON）
 static volatile bool     g_has_beacon = false; // 是否已对齐到周期起点
 static volatile uint32_t g_epoch_ms  = 0;      // 本周期起点（对齐后有效）
@@ -26,8 +28,10 @@ static volatile uint32_t g_last_any_beacon_ms = 0;  // 最近一次收到任意�
 static volatile uint32_t g_first_any_beacon_ms = 0; // 第一次收到任意信标的时刻
 static volatile uint8_t  g_anchor_src_id = 0;       // 当前锚点 node_id，0=未知
 
+void adr_set_enabled(bool on) { g_adr_enabled = on; }
+bool adr_is_enabled(void)     { return g_adr_enabled; }
+
 void adr_init() {
-    g_sf = ADR_SF_SLOW;
     g_has_beacon = false;
     g_epoch_ms = 0;
     g_last_beacon_ms = 0;
@@ -39,11 +43,25 @@ void adr_init() {
     g_last_any_beacon_ms = 0;
     g_first_any_beacon_ms = 0;
     g_anchor_src_id = 0;
-    radio_set_sf(ADR_SF_SLOW);   // 开机先停 SF9，保证能收到第一个 BEACON
+
+    // 读 NVS（load 内部对 adr_en / SF×BW 组合做了兜底），决定是否参与 ADR
+    cfg_t cfg;
+    nvs_cfg_load(&cfg);
+    g_cfg_sf = cfg.sf;
+    g_adr_enabled = (cfg.adr_en != 0);
+
+    if (g_adr_enabled) {
+        g_sf = ADR_SF_SLOW;
+        radio_set_sf(ADR_SF_SLOW);   // 开机先停 SF9，保证能收到第一个 BEACON
+    } else {
+        g_sf = g_cfg_sf;             // 关闭 ADR：保持 radio_init 已配置的 SF，不等 BEACON
+    }
 }
 
 // 收到 BEACON：relay_id==0 为本机直收（权威信标，参与对齐）；否则只算"系统在场"
 void adr_on_beacon(uint8_t src_id, uint8_t relay_id) {
+    if (!g_adr_enabled) return;   // 关闭 ADR：忽略对端信标，不跟着改 SF
+
     uint32_t now = millis();
     g_last_any_beacon_ms = now;
     if (g_first_any_beacon_ms == 0) g_first_any_beacon_ms = now;
@@ -96,6 +114,8 @@ static uint8_t sf_for_phase(uint32_t phase) {
 }
 
 void adr_tick() {
+    if (!g_adr_enabled) return;   // 关闭 ADR：不切 SF、不发 BEACON、不做相位协商
+
     uint32_t now = millis();
     uint8_t role = role_state_get();
 
@@ -167,7 +187,7 @@ void adr_tick() {
     }
 }
 
-uint8_t adr_current_sf() { return g_sf; }
+uint8_t adr_current_sf() { return g_adr_enabled ? g_sf : g_cfg_sf; }
 
 uint32_t adr_beacon_count()       { return g_beacon_count; }
 uint32_t adr_beacon_hop_count()   { return g_hop_count; }

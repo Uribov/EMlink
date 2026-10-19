@@ -58,7 +58,7 @@ void cli_help() {
 static void cmd_get_all() {
     const char* keys[] = {"role","node_id","sysid","freq","sf","bw","cr","power",
                           "syncword","uart_baud","ttl","ack_timeout_ms","retries",
-                          "beacon_s","failsafe_s","name"};
+                          "beacon_s","failsafe_s","adr_en","name"};
     char val[64];
     for (size_t i = 0; i < sizeof(keys)/sizeof(keys[0]); i++) {
         if (nvs_cfg_get(keys[i], val, sizeof(val))) {
@@ -87,9 +87,33 @@ void cli_handle_line(const char* line) {
             cli_print("用法：role air|gcs|relay\r\n");
         }
     } else if (strcmp(cmd, "set") == 0) {
-        if (n >= 3 && nvs_cfg_set(arg1, arg2)) {
-            cli_print("已设置（save 后生效）\r\n");
-        } else {
+        bool ok = false;
+        if (n >= 3) {
+            if (strcmp(arg1, "adr") == 0) {
+                if (strcmp(arg2, "0") == 0 || strcmp(arg2, "1") == 0) {
+                    if (nvs_cfg_set("adr_en", arg2)) {
+                        adr_set_enabled(arg2[0] == '1');
+                        if (adr_is_enabled()) {
+                            cli_print("ADR 已开启\r\n");
+                        } else {
+                            char line[64];
+                            snprintf(line, sizeof(line),
+                                     "ADR 已关闭，两端固定 SF%u（save 后重启生效）\r\n",
+                                     (unsigned)adr_current_sf());
+                            cli_print(line);
+                        }
+                        ok = true;
+                    }
+                } else {
+                    cli_print("用法：set adr 0|1\r\n");
+                    ok = true;
+                }
+            } else if (nvs_cfg_set(arg1, arg2)) {
+                cli_print("已设置（save 后生效）\r\n");
+                ok = true;
+            }
+        }
+        if (!ok) {
             cli_print("设置失败：键名未知或值超出范围（用 get 查看当前值）\r\n");
             if (strcmp(arg1, "sf") == 0 || strcmp(arg1, "bw") == 0) {
                 cli_print("提示：本机射频 LLCC68 要求 SF 与带宽配对 —— BW125→SF≤9、BW250→≤10、BW500→≤11\r\n");
@@ -197,11 +221,12 @@ void cli_handle_line(const char* line) {
         cli_print(line);
         // 中间层·速率：ADR/信标/相位协商，属于链路自适应。
         snprintf(line, sizeof(line),
-                 "速率: ADR 对齐=%s  信标=%u  多跳=%u  失步=%u  多锚点=%u  SF=%u  beacon_s=%s\r\n",
+                 "速率: ADR 对齐=%s  信标=%u  多跳=%u  失步=%u  多锚点=%u  SF=%u  beacon_s=%s  adr=%s\r\n",
                  adr_has_beacon() ? (adr_compat_mode() ? "降级" : "是") : "否",
                  (unsigned)adr_beacon_count(), (unsigned)adr_beacon_hop_count(),
                  (unsigned)adr_desync_count(), (unsigned)adr_multi_anchor_count(),
-                 (unsigned)adr_current_sf(), bcn[0] ? bcn : "-");
+                 (unsigned)adr_current_sf(), bcn[0] ? bcn : "-",
+                 adr_is_enabled() ? "on" : "off");
         cli_print(line);
 
         cli_print("--- 应用层 ---\r\n");

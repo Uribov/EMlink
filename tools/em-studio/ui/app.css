@@ -341,3 +341,18 @@ font-size:11px;line-height:1.5;color:var(--text)}
 .verdict.err .verdict-dot{background:var(--err)}
 .verdict.warn .verdict-dot{background:#eab308}
 .verdict-text{min-width:0;overflow-wrap:anywhere}
+
+/* ---- D6：允许外部释放串口开关（只做加法） ---- */
+.ext-release{display:inline-flex;align-items:center;gap:7px;flex:none;
+font-size:11px;letter-spacing:.05em;color:var(--muted);cursor:pointer;white-space:nowrap}
+.ext-release input{appearance:none;-webkit-appearance:none;flex:none;width:14px;height:14px;
+margin:0;border:1px solid var(--line);background:transparent;cursor:pointer;position:relative}
+.ext-release input:checked{background:var(--text);border-color:var(--text)}
+.ext-release input:checked::after{content:"";position:absolute;left:3px;top:1px;
+width:6px;height:9px;border:solid var(--bg);border-width:0 2px 2px 0;
+transform:rotate(45deg)}
+.ext-release input:focus{outline:none;border-color:var(--text)}
+.output .line.ext{color:var(--dim)}
+@media(max-width:760px){
+  .ext-release{font-size:10px}
+}

@@ -23,8 +23,12 @@
 #define ADR_BEACON_QUEUE_MS     50  // 估算的"入队→真正上空"延迟，对齐补偿用（外场可调）
 #define ADR_COMPAT_SF        ADR_SF_FAST  // 兼容模式固定速率（TDM 里占比最大的那档）
 
-// 初始化（读默认 SF，先停在 SF9 等 BEACON）
+// 初始化（读默认 SF；ADR 开启时先停在 SF9 等 BEACON，关闭时保持配置 SF）
 void adr_init();
+
+// 总开关：关闭 = 固定使用 NVS 配置的 SF，不切速率、不发/不等 BEACON
+void adr_set_enabled(bool on);   // 运行时开关（关掉 = 固定速率）
+bool adr_is_enabled(void);
 
 // 收到 BEACON 帧时调用（mesh_task 里）；relay_id==0 表示本机直收（权威信标），否则多跳转发
 void adr_on_beacon(uint8_t src_id, uint8_t relay_id);

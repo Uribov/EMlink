@@ -29,6 +29,7 @@ void nvs_cfg_factory(cfg_t* out) {
     out->beacon_s       = 1;
     out->failsafe_s     = 3;
     out->auto_wifi_s    = 30;       // 上电 30s 无链路 → 自动进 WiFi 维护模式
+    out->adr_en         = 1;        // ADR 默认开启
     memset(out->name, 0, sizeof(out->name));
     memset(out->crypto_key, 0, sizeof(out->crypto_key));
     memset(out->wifi_ssid, 0, sizeof(out->wifi_ssid));
@@ -71,6 +72,12 @@ bool nvs_cfg_load(cfg_t* out) {
     out->auto_wifi_s    = p.getUShort("auto_wifi_s", 30);
     if (out->auto_wifi_s < 15) out->auto_wifi_s = 15;   // 旧值/异常值兜底（钳制，不是拒绝）
     if (out->auto_wifi_s > 60) out->auto_wifi_s = 60;
+    out->adr_en = p.getUChar("adr_en", 1);
+    if (out->adr_en > 1) {
+        static bool warned = false;
+        if (!warned) { warned = true; Serial.println("[cfg] NVS 里的 adr_en 非法（只允许 0/1），已钳到 1"); }
+        out->adr_en = 1;
+    }
     p.getString("name", out->name, sizeof(out->name));
     memset(out->crypto_key, 0, sizeof(out->crypto_key));   // 默认关闭
     if (p.getBytesLength("crypto_key") == 16) p.getBytes("crypto_key", out->crypto_key, 16);
@@ -102,6 +109,7 @@ bool nvs_cfg_save(const cfg_t* in) {
     p.putUShort("beacon_s", in->beacon_s);
     p.putUShort("failsafe_s", in->failsafe_s);
     p.putUShort("auto_wifi_s", in->auto_wifi_s);
+    p.putUChar("adr_en", in->adr_en ? 1 : 0);
     p.putString("name", in->name);
     p.putBytes("crypto_key", in->crypto_key, 16);
     p.putString("wifi_ssid", in->wifi_ssid);
@@ -214,6 +222,10 @@ bool nvs_cfg_value_ok(const char* key, const char* val) {
         // 特殊：不拒绝越界值，交给 nvs_cfg_set 钳制到 15~60（用户要求"小于强制15、超过强制60"）
         return parse_long(val, &l);
     }
+    if (strcmp(key, "adr_en") == 0) {
+        // 只接受 0/1；其它数字交给 nvs_cfg_set 钳到 1（与 adr_en 的"默认开"一致）
+        return parse_long(val, &l);
+    }
     if (strcmp(key, "name") == 0) {
         size_t n = strlen(val);
         return n >= 1 && n <= 15;
@@ -310,6 +322,13 @@ bool nvs_cfg_set(const char* key, const char* val) {
         if (l < 15) l = 15;          // 钳制：用户定"小于 15 强制 15、超过 60 强制 60"
         if (l > 60) l = 60;
         p.putUShort("auto_wifi_s", (uint16_t)l);
+    } else if (strcmp(key, "adr_en") == 0) {
+        long l = atol(val);
+        if (l != 0 && l != 1) {
+            Serial.printf("[cfg] adr_en=%ld 非法（只允许 0/1），已钳到 1\n", l);
+            l = 1;
+        }
+        p.putUChar("adr_en", (uint8_t)l);
     } else if (strcmp(key, "name") == 0) {
         p.putString("name", val);
     } else {
@@ -358,6 +377,9 @@ bool nvs_cfg_get(const char* key, char* val, size_t len) {
         snprintf(val, len, "%u", p.getUShort("failsafe_s", 3));
     } else if (strcmp(key, "auto_wifi_s") == 0) {
         snprintf(val, len, "%u", p.getUShort("auto_wifi_s", 30));
+    } else if (strcmp(key, "adr_en") == 0) {
+        uint8_t en = p.getUChar("adr_en", 1);
+        snprintf(val, len, "%u", en > 1 ? 1 : en);
     } else if (strcmp(key, "name") == 0) {
         p.getString("name", val, len);
     } else {

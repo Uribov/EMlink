@@ -15,6 +15,19 @@
 - `role.h`（判断本机是否 GCS）
 - `frame_codec.h`（`FRAME_HDR_LEN`/`FRAME_CRC_LEN` 算信标长度）
 
+## 总开关 `adr_en`
+
+- **NVS 键**：`adr_en`，取值 `1`（默认，开启）/ `0`（关闭）；只接受 0/1，其它值钳到 1。
+- **CLI**：`set adr 0|1`（写入 NVS + 运行时开关；`save` 后重启确保射频按配置 SF 固定）。
+- **关闭后的行为**：
+  - 固定使用 NVS 配置的 SF（`sf`，默认 7），**不切速率**；
+  - `adr_tick()` 直接返回：**不发 BEACON、不等 BEACON、不做相位协商**；
+  - `adr_on_beacon()` **忽略**收到的信标，不会因为对端信标改 SF；
+  - `adr_current_sf()` 返回配置里的 SF，而不是上次协商值；
+  - 诊断计数（`信标/多跳/失步/多锚点`）保持原样，关闭时自然不增长。
+- **用途**：链路调试。先关掉 ADR、两端固定同一 SF，证明物理链路本身能通；再打开 ADR 调自适应。
+- **边界**：关闭 ADR 不等于关闭射频或信标帧类型，`mesh` 层该发什么还发什么；它只负责"不自动变速、不做时钟协商"。
+
 ## 速率表（方案定死，5s 保守周期）
 | 相位（5s 周期内） | SF | 用途 |
 |---|---|---|
@@ -45,7 +58,7 @@
 | 本机是 GCS 时收到别人的信标 | 只计数，**不跟随**（否则两个 GCS 互拉相位） |
 
 ## 对外接口
-见 `adr.h`：`adr_init / adr_on_beacon(src,relay) / adr_tick / adr_current_sf` + 诊断 `adr_beacon_count / adr_beacon_hop_count / adr_desync_count / adr_multi_anchor_count / adr_has_beacon / adr_compat_mode`。
+见 `adr.h`：`adr_init / adr_on_beacon(src,relay) / adr_tick / adr_current_sf / adr_set_enabled / adr_is_enabled` + 诊断 `adr_beacon_count / adr_beacon_hop_count / adr_desync_count / adr_multi_anchor_count / adr_has_beacon / adr_compat_mode`。
 
 ## 验收
 - GCS + 1 台 AIR：上电后 AIR 先停在 SF10 收到 GCS 第一个 BEACON，随后两者 SF 同步切换，5s 一轮
