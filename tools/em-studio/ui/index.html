@@ -45,6 +45,28 @@
           </div>
         </dl>
         <div class="note" id="device-note"></div>
+
+        <div id="flash-block" class="flash-block">
+          <h3 class="flash-title">固件烧录</h3>
+          <div class="flash-file">
+            <button id="btn-pick-firmware" class="btn compact" type="button">选择固件…</button>
+            <span id="flash-path" class="flash-path" title="">未选择固件</span>
+          </div>
+          <label class="flash-check" for="flash-erase">
+            <input type="checkbox" id="flash-erase">
+            <span>整片烧录（会清空配置，需选合并镜像）</span>
+          </label>
+          <div class="note flash-note" id="flash-erase-note">整片烧录请选择从 0x0 开始的合并镜像，否则板子会变砖。</div>
+          <div class="flash-actions">
+            <button id="btn-flash" class="btn compact" type="button" disabled>开始烧录</button>
+          </div>
+          <div class="flash-progress">
+            <div class="flash-bar"><div id="flash-bar-fill" class="flash-bar-fill"></div></div>
+            <span id="flash-percent" class="flash-percent">0%</span>
+          </div>
+          <div id="flash-status" class="flash-status">—</div>
+          <div id="flash-build-note" class="note flash-build-note" hidden></div>
+        </div>
       </div>
 
       <div id="panel-params" class="panel panel-params">

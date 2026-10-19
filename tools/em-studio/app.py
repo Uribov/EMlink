@@ -5,12 +5,22 @@ pywebview 入口 + JS 桥。桥方法统一返回 {"ok": bool, "data": ..., "err
 
 import os
 import threading
+import time
 
 import webview
 
-from backend import mav_raw, params, prober
+from backend import flasher, mav_raw, params, prober
 from backend.devices import list_devices
 from backend.serial_link import SerialLink
+
+_DEFAULT_FIRMWARE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "firmware",
+    ".pio",
+    "build",
+    "esp32s3-supermini-e220-900m22s",
+    "firmware.bin",
+)
 
 
 def _int_arg(value, name, low, high):
@@ -43,6 +53,9 @@ class Api:
         self._links = {}
         self._port_ids = {}
         self._next_id = 1
+        self._flash_lock = threading.Lock()
+        self._flash_state = {}
+        self._flash_active = None
 
     @staticmethod
     def _ok(data):
@@ -66,6 +79,36 @@ class Api:
             return self._ok(list_devices())
         except Exception as exc:
             return self._err(f"端口枚举失败：{exc}")
+
+    def api_default_firmware(self):
+        exists = os.path.isfile(_DEFAULT_FIRMWARE)
+        size = 0
+        if exists:
+            try:
+                size = os.path.getsize(_DEFAULT_FIRMWARE)
+            except OSError:
+                exists = False
+        return self._ok({"path": _DEFAULT_FIRMWARE, "exists": exists, "size": size})
+
+    def api_pick_firmware(self):
+        try:
+            window = webview.windows[0]
+            directory = os.path.dirname(_DEFAULT_FIRMWARE)
+            if not os.path.isdir(directory):
+                directory = ""
+            selected = window.create_file_dialog(
+                webview.OPEN_DIALOG,
+                directory=directory,
+                file_types=("固件 (*.bin)",),
+            )
+        except Exception as exc:
+            return self._err(f"打开文件对话框失败：{exc}")
+
+        if not selected:
+            return self._ok("")
+        if isinstance(selected, (list, tuple)):
+            selected = selected[0] if selected else ""
+        return self._ok(os.path.abspath(str(selected)) if selected else "")
 
     def api_connect(self, port, baud=115200):
         port = str(port or "").strip()
@@ -108,6 +151,127 @@ class Api:
             return self._err("设备不存在")
         link.close()
         return self._ok(True)
+
+    def _set_flash_state(self, device_id, **changes):
+        with self._flash_lock:
+            state = self._flash_state.setdefault(
+                device_id,
+                {"progress": 0, "state": "idle", "message": ""},
+            )
+            state.update(changes)
+            return dict(state)
+
+    def _flash_worker(self, device_id, link, bin_path, erase):
+        port = link.port
+        baud = link.baud
+        started = time.monotonic()
+        result = {"ok": False, "message": "烧录失败", "log": ""}
+
+        def on_progress(percent):
+            self._set_flash_state(
+                device_id,
+                progress=int(percent),
+                message=f"烧录中… {int(percent)}%",
+            )
+
+        try:
+            link.close()
+            result = flasher.flash(
+                port,
+                bin_path,
+                erase=bool(erase),
+                on_progress=on_progress,
+            )
+        except Exception as exc:
+            result = {"ok": False, "message": f"烧录异常：{exc}", "log": ""}
+
+        elapsed = time.monotonic() - started
+        ok = bool(result.get("ok"))
+        if ok:
+            message = f"烧录完成（{elapsed:.1f} s）"
+            self._set_flash_state(
+                device_id,
+                progress=100,
+                message=message + "，正在重连…",
+            )
+        else:
+            message = str(result.get("message") or "烧录失败").splitlines()[0]
+            self._set_flash_state(device_id, message=message + "，正在重连…")
+
+        reconnected = False
+        reconnect_error = ""
+        with self._lock:
+            still_present = self._links.get(device_id) is link
+        if still_present:
+            for _ in range(15):
+                reply = self.api_connect(port, baud)
+                if reply.get("ok"):
+                    reconnected = True
+                    break
+                reconnect_error = reply.get("error", "")
+                time.sleep(0.3)
+
+        if not reconnected:
+            message += "；自动重连失败"
+            if reconnect_error:
+                message += f"：{reconnect_error}"
+
+        with self._flash_lock:
+            state = self._flash_state.setdefault(
+                device_id,
+                {"progress": 0, "state": "idle", "message": ""},
+            )
+            state["state"] = "ok" if ok else "fail"
+            state["message"] = message
+            if ok:
+                state["progress"] = 100
+            if self._flash_active == device_id:
+                self._flash_active = None
+
+    def api_flash(self, device_id, bin_path, erase=False):
+        device_id = str(device_id or "")
+        link = self._get(device_id)
+        if link is None:
+            return self._err("设备不存在")
+
+        bin_path = str(bin_path or "").strip()
+        if not bin_path:
+            return self._err("未选择固件文件")
+        if not bin_path.lower().endswith(".bin"):
+            return self._err("只支持 .bin 固件")
+        if not os.path.isfile(bin_path):
+            return self._err(f"固件文件不存在：{bin_path}")
+        if not flasher.find_esptool():
+            return self._err("找不到 esptool.py（请确认已安装，或用 ESPTOOL 环境变量指定）")
+
+        with self._flash_lock:
+            if self._flash_active is not None:
+                return self._err("已有烧录任务正在进行")
+            self._flash_active = device_id
+            self._flash_state[device_id] = {
+                "progress": 0,
+                "state": "running",
+                "message": "准备烧录…",
+            }
+
+        thread = threading.Thread(
+            target=self._flash_worker,
+            args=(device_id, link, os.path.abspath(bin_path), bool(erase)),
+            name=f"em-{device_id}-flash",
+            daemon=True,
+        )
+        thread.start()
+        return self._ok({"started": True, "state": "running"})
+
+    def api_flash_progress(self, device_id):
+        device_id = str(device_id or "")
+        with self._flash_lock:
+            state = self._flash_state.get(device_id)
+            if state is None:
+                state = {"progress": 0, "state": "idle", "message": ""}
+            else:
+                state = dict(state)
+        return self._ok(state)
 
     def api_send(self, device_id, text):
         link = self._get(device_id)

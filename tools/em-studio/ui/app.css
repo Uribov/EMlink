@@ -298,3 +298,37 @@ color:var(--text);max-height:110px;overflow:auto}
   .mav-head,.mav-row{grid-template-columns:64px 58px 38px 40px 34px minmax(0,1fr) 36px}
   .mav-detail-grid{grid-template-columns:1fr}
 }
+
+/* ---- D4：固件烧录 ---- */
+.flash-block{border-top:1px solid var(--line);margin-top:18px;padding-top:16px;flex:none}
+.flash-title{margin:0 0 12px;font-size:10px;font-weight:600;letter-spacing:.16em;
+text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:10px}
+.flash-title:after{content:"";flex:1;height:1px;background:var(--line2)}
+.flash-file{display:flex;align-items:center;gap:10px;min-width:0}
+.flash-file .btn{margin:0;padding:8px 12px;font-size:10px;flex:none}
+.flash-path{flex:1;min-width:0;font-family:ui-monospace,Menlo,Consolas,monospace;
+font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.flash-path.set{color:var(--text)}
+.flash-check{display:flex;align-items:flex-start;gap:8px;margin:12px 0 0;
+font-size:11px;line-height:1.45;letter-spacing:0;color:var(--muted);cursor:pointer}
+.flash-check input{appearance:none;-webkit-appearance:none;flex:none;width:14px;height:14px;
+margin:1px 0 0;border:1px solid var(--line);background:transparent;cursor:pointer;position:relative}
+.flash-check input:checked{background:var(--text);border-color:var(--text)}
+.flash-check input:checked::after{content:"";position:absolute;left:3px;top:1px;
+width:6px;height:9px;border:solid var(--bg);border-width:0 2px 2px 0;
+transform:rotate(45deg)}
+.flash-check input:focus{outline:none;border-color:var(--text)}
+.flash-check input:disabled{opacity:.4;cursor:not-allowed}
+.flash-note{margin-top:6px}
+.flash-actions{margin-top:12px}
+.flash-actions .btn{display:block;width:100%;margin:0;padding:10px 12px}
+.flash-progress{display:flex;align-items:center;gap:10px;margin-top:12px}
+.flash-bar{flex:1;height:4px;border:1px solid var(--line);background:transparent;overflow:hidden}
+.flash-bar-fill{height:100%;width:0;background:var(--text);transition:width .15s linear}
+.flash-percent{flex:none;width:42px;text-align:right;font-family:ui-monospace,Menlo,Consolas,monospace;
+font-size:11px;color:var(--muted)}
+.flash-status{margin-top:8px;font-size:11px;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}
+.flash-status.running{color:var(--text)}
+.flash-status.ok{color:var(--ok)}
+.flash-status.fail{color:var(--err)}
+.flash-build-note{margin-top:6px}

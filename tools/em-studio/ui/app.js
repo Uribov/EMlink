@@ -9,6 +9,7 @@
   const PARAM_KEYS = ['role', 'node_id', 'freq', 'sf', 'bw', 'cr', 'power', 'auto_wifi_s', 'crypto'];
   const LED_TICK_MS = 50;
   const STATUS_POLL_MS = 2000;
+  const FLASH_POLL_MS = 300;
   const MAV_MAX_FRAMES = 200;
   const HEARTBEAT_PAYLOAD_HEX = '000000000000000003';
 
@@ -24,6 +25,8 @@
     polling: false,
     statusPolling: false,
     statusTimer: null,
+    flash: { deviceId: null, running: false, timer: null },
+    defaultFirmware: { path: '', exists: false, size: 0 },
   };
 
   function $(id) {
@@ -381,6 +384,15 @@
     if (typeof tab.heartbeat !== 'boolean') tab.heartbeat = false;
     if (!('heartbeatTimer' in tab)) tab.heartbeatTimer = null;
     if (typeof tab.frameSeq !== 'number') tab.frameSeq = 0;
+    if (!tab.flash || typeof tab.flash !== 'object') {
+      tab.flash = {
+        path: state.defaultFirmware.exists ? state.defaultFirmware.path : '',
+        erase: false,
+        progress: 0,
+        state: 'idle',
+        message: '',
+      };
+    }
   }
 
   function sfMaxForBw(bw) {
@@ -745,6 +757,222 @@
     }
   }
 
+  function formatFileSize(bytes) {
+    const size = Number(bytes) || 0;
+    if (size >= 1024 * 1024) return (size / (1024 * 1024)).toFixed(1) + ' MB';
+    return Math.round(size / 1024) + ' KB';
+  }
+
+  function renderFlashBuildNote() {
+    const note = $('flash-build-note');
+    if (!note) return;
+    const info = state.defaultFirmware;
+    if (!info.path) {
+      note.hidden = true;
+      note.textContent = '';
+      return;
+    }
+    note.hidden = false;
+    note.textContent = info.exists
+      ? '上次构建：' + info.path + '（' + formatFileSize(info.size) + '）'
+      : '上次构建未找到：' + info.path;
+  }
+
+  async function loadDefaultFirmware() {
+    try {
+      const data = await call('api_default_firmware');
+      state.defaultFirmware = {
+        path: (data && data.path) || '',
+        exists: !!(data && data.exists),
+        size: (data && data.size) || 0,
+      };
+      if (state.defaultFirmware.exists) {
+        for (const tab of state.tabs.values()) {
+          ensureTabState(tab);
+          if (!tab.flash.path) tab.flash.path = state.defaultFirmware.path;
+        }
+      }
+    } catch (err) {
+      state.defaultFirmware = { path: '', exists: false, size: 0 };
+    }
+    renderFlashBuildNote();
+    renderFlashPanel();
+  }
+
+  function renderFlashPanel() {
+    const tab = state.tabs.get(state.activeId);
+    const busy = state.flash.running;
+    const flashTab = state.flash.deviceId ? state.tabs.get(state.flash.deviceId) : null;
+    const pathEl = $('flash-path');
+    const erase = $('flash-erase');
+    const percentEl = $('flash-percent');
+    const fill = $('flash-bar-fill');
+    const status = $('flash-status');
+    const pick = $('btn-pick-firmware');
+    const button = $('btn-flash');
+
+    if (!tab) {
+      pathEl.textContent = '未选择固件';
+      pathEl.title = '';
+      pathEl.classList.remove('set');
+      erase.checked = false;
+      erase.disabled = true;
+      pick.disabled = true;
+      button.disabled = true;
+      button.textContent = '开始烧录';
+      fill.style.width = '0%';
+      percentEl.textContent = '0%';
+      status.className = 'flash-status';
+      status.textContent = '—';
+      return;
+    }
+
+    ensureTabState(tab);
+    const info = tab.flash;
+    const here = busy && state.flash.deviceId === tab.id;
+
+    pathEl.textContent = info.path || '未选择固件';
+    pathEl.title = info.path || '';
+    pathEl.classList.toggle('set', !!info.path);
+
+    pick.disabled = busy;
+    erase.checked = !!info.erase;
+    erase.disabled = busy;
+    button.disabled = busy || !info.path;
+    button.textContent = here ? '烧录中…' : (busy ? '其他设备烧录中…' : '开始烧录');
+
+    const percent = Math.max(0, Math.min(100, Number(info.progress) || 0));
+    fill.style.width = percent + '%';
+    percentEl.textContent = percent + '%';
+
+    status.className = 'flash-status';
+    if (busy && !here) {
+      status.classList.add('running');
+      status.textContent = '另一设备正在烧录' +
+        (flashTab ? '（' + flashTab.port + '）' : '') + '…';
+      return;
+    }
+    if (info.state === 'running') {
+      status.classList.add('running');
+      status.textContent = info.message || '烧录中…';
+    } else if (info.state === 'ok') {
+      status.classList.add('ok');
+      status.textContent = '✅ ' + (info.message || '烧录完成');
+    } else if (info.state === 'fail') {
+      status.classList.add('fail');
+      status.textContent = '❌ 失败：' + (info.message || '烧录失败');
+    } else {
+      status.textContent = info.message || '—';
+    }
+  }
+
+  async function pickFirmware() {
+    const tab = state.tabs.get(state.activeId);
+    if (!tab || state.flash.running) return;
+    try {
+      const path = await call('api_pick_firmware');
+      if (!path) return;
+      ensureTabState(tab);
+      tab.flash.path = path;
+      tab.flash.progress = 0;
+      tab.flash.state = 'idle';
+      tab.flash.message = '';
+      renderFlashPanel();
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  }
+
+  function stopFlashPolling() {
+    if (!state.flash.timer) return;
+    clearInterval(state.flash.timer);
+    state.flash.timer = null;
+  }
+
+  async function pollFlashProgress(deviceId) {
+    try {
+      const data = await call('api_flash_progress', deviceId);
+      const tab = state.tabs.get(deviceId);
+      if (!tab) return;
+      ensureTabState(tab);
+      tab.flash.progress = Number(data && data.progress) || 0;
+      tab.flash.state = (data && data.state) || 'idle';
+      tab.flash.message = (data && data.message) || '';
+
+      if (tab.flash.state !== 'running') {
+        stopFlashPolling();
+        state.flash.running = false;
+        state.flash.deviceId = null;
+        renderAll();
+        refreshPorts();
+        if (tab.flash.state === 'ok') {
+          showToast(tab.flash.message || '烧录完成');
+        } else if (tab.flash.state === 'fail') {
+          showToast('烧录失败：' + (tab.flash.message || ''), true);
+        }
+        return;
+      }
+      renderFlashPanel();
+    } catch (err) {
+      stopFlashPolling();
+      state.flash.running = false;
+      state.flash.deviceId = null;
+      const tab = state.tabs.get(deviceId);
+      if (tab) {
+        ensureTabState(tab);
+        tab.flash.state = 'fail';
+        tab.flash.message = err.message;
+      }
+      renderAll();
+      showToast(err.message, true);
+    }
+  }
+
+  function startFlashPolling() {
+    stopFlashPolling();
+    const deviceId = state.flash.deviceId;
+    if (!deviceId) return;
+    const poll = function () {
+      pollFlashProgress(deviceId);
+    };
+    state.flash.timer = setInterval(poll, FLASH_POLL_MS);
+    poll();
+  }
+
+  async function startFlash() {
+    const tab = state.tabs.get(state.activeId);
+    if (!tab) return;
+    if (state.flash.running) {
+      showToast('已有烧录任务正在进行', true);
+      return;
+    }
+    ensureTabState(tab);
+    if (!tab.flash.path) {
+      showToast('请先选择 .bin 固件', true);
+      return;
+    }
+
+    tab.flash.progress = 0;
+    tab.flash.state = 'running';
+    tab.flash.message = '准备烧录…';
+    state.flash.running = true;
+    state.flash.deviceId = tab.id;
+    renderAll();
+
+    try {
+      await call('api_flash', tab.id, tab.flash.path, !!tab.flash.erase);
+    } catch (err) {
+      state.flash.running = false;
+      state.flash.deviceId = null;
+      tab.flash.state = 'fail';
+      tab.flash.message = err.message;
+      renderAll();
+      showToast(err.message, true);
+      return;
+    }
+    startFlashPolling();
+  }
+
   function rebuildPortSelect() {
     const select = $('port-select');
     const previous = select.value;
@@ -780,6 +1008,12 @@
 
   function updateConnectButton() {
     const button = $('btn-connect');
+    if (state.flash.running) {
+      button.textContent = '烧录中…';
+      button.classList.remove('primary');
+      button.disabled = true;
+      return;
+    }
     const port = $('port-select').value;
     const active = state.tabs.get(state.activeId);
     let tab = null;
@@ -842,6 +1076,10 @@
 
     $('info-status').className = 'st ' + statusClass(tab.status);
     $('info-status-text').textContent = statusText(tab.status);
+    if (state.flash.running && state.flash.deviceId === tab.id) {
+      $('info-status').className = 'st live';
+      $('info-status-text').textContent = '烧录中';
+    }
     $('device-note').textContent = tab.note || '';
 
     const switched = state.renderedId !== tab.id;
@@ -901,6 +1139,9 @@
     renderEmptyState();
     renderActive();
     updateConnectButton();
+    $('btn-refresh').disabled = state.flash.running;
+    $('port-select').disabled = state.flash.running;
+    renderFlashPanel();
   }
 
   function activate(id) {
@@ -914,6 +1155,10 @@
   }
 
   async function refreshPorts() {
+    if (state.flash.running) {
+      showToast('烧录进行中，暂时不能刷新端口', true);
+      return;
+    }
     try {
       const ports = await call('api_list_ports');
       state.ports = Array.isArray(ports) ? ports : [];
@@ -927,6 +1172,10 @@
   }
 
   async function disconnectTab(tab) {
+    if (state.flash.running) {
+      showToast('烧录进行中，暂时不能断开', true);
+      return;
+    }
     try {
       await call('api_disconnect', tab.id);
       tab.status = 'closed';
@@ -992,6 +1241,10 @@
   }
 
   async function onConnectClick() {
+    if (state.flash.running) {
+      showToast('烧录进行中，暂时不能连接/断开', true);
+      return;
+    }
     const port = $('port-select').value;
     const active = state.tabs.get(state.activeId);
 
@@ -1027,6 +1280,10 @@
   async function closeTab(id) {
     const tab = state.tabs.get(id);
     if (!tab) return;
+    if (state.flash.running && state.flash.deviceId === id) {
+      showToast('烧录进行中，暂时不能关闭该标签', true);
+      return;
+    }
     try {
       await call('api_close_tab', id);
     } catch (err) {
@@ -1749,6 +2006,18 @@
       else stopHeartbeat(tab);
     });
 
+    $('btn-pick-firmware').addEventListener('click', pickFirmware);
+    $('flash-erase').addEventListener('change', function () {
+      const tab = activeTab();
+      if (!tab) {
+        this.checked = false;
+        return;
+      }
+      ensureTabState(tab);
+      tab.flash.erase = this.checked;
+    });
+    $('btn-flash').addEventListener('click', startFlash);
+
     bindParamEvents();
   }
 
@@ -1764,6 +2033,7 @@
     renderChanged(null);
     setParamsEnabled(false);
     refreshPorts();
+    loadDefaultFirmware();
     startPolling();
     updateLedTriangle();
     setInterval(updateLedTriangle, LED_TICK_MS);
