@@ -21,6 +21,7 @@ wifi [off]            开/关 WiFi 维护模式
 scan                  扫邻居 + 最近收包信号
 ping <node_id>        测通断/RTT
 cfg <键> <值>         广播参数给全网（GCS，role 不允许远程改）
+gpiotest              强制测试 RXEN/TXEN 电平（约20秒）
 mavlink monitor on    旁路观察 MAVLink（调试，预留）
 help                  帮助
 ```
@@ -63,6 +64,7 @@ help                  帮助
 | `scan` | 最近收包 rssi/snr + 邻居表（`route_neighbors`） |
 | `ping <node_id>` | `mesh_ping` 发 FRAME_PING 测 RTT + rssi |
 | `cfg <key> <val>` | `mesh_send_ctrl(FRAME_CFG)` 广播参数给全网 |
+| `gpiotest` | 强制 RXEN/TXEN 电平测试（四段各 5 秒；用 `PIN_LORA_RXEN`/`PIN_LORA_TXEN`，结束后 `radio_resume()` 交回 RadioLib） |
 | `help` | 帮助 |
 
 ### 依赖

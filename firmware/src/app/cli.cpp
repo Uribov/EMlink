@@ -6,6 +6,7 @@
 #include "../rtos.h"
 #include "../drivers/usb_cdc.h"
 #include "../drivers/radio.h"
+#include "../pinmap.h"
 #include "../drivers/uart_fc.h"
 #include "../net/mesh.h"
 #include "../net/route.h"
@@ -52,6 +53,7 @@ void cli_help() {
               "  ping <node_id>       测通断/RTT\r\n"
               "  cfg <键> <值>        广播参数给全网（GCS）\r\n"
               "  ver                  看固件/协议版本\r\n"
+              "  gpiotest             强制测试 RXEN/TXEN 电平（约20秒）\r\n"
               "  help                 帮助\r\n");
 }
 
@@ -65,6 +67,72 @@ static void cmd_get_all() {
             char line[96];
             snprintf(line, sizeof(line), "  %-14s %s\r\n", keys[i], val);
             cli_print(line);
+        }
+    }
+}
+
+static void gpiotest_apply(bool tx_high, bool rx_high) {
+    pinMode(PIN_LORA_TXEN, OUTPUT);
+    pinMode(PIN_LORA_RXEN, OUTPUT);
+    digitalWrite(PIN_LORA_TXEN, tx_high ? HIGH : LOW);
+    digitalWrite(PIN_LORA_RXEN, rx_high ? HIGH : LOW);
+}
+
+static void cmd_gpiotest() {
+    char line[160];
+    bool was_ready = radio_is_ready();
+
+    cli_print("[gpiotest] 开始，共 4 段，每段 5 秒；每 1 秒打一个点\r\n");
+    if (was_ready) radio_suspend();
+
+    for (int seg = 0; seg < 4; seg++) {
+        bool tx_high = (seg == 0 || seg == 3);
+        bool rx_high = (seg == 2 || seg == 3);
+
+        gpiotest_apply(tx_high, rx_high);
+
+        switch (seg) {
+            case 0:
+                snprintf(line, sizeof(line),
+                         "[gpiotest] 1/4  TXEN(GPIO%d)=HIGH  RXEN(GPIO%d)=LOW  ← 现在测 TXEN(GPIO%d)，应为 3.3V\r\n",
+                         PIN_LORA_TXEN, PIN_LORA_RXEN, PIN_LORA_TXEN);
+                break;
+            case 1:
+                snprintf(line, sizeof(line),
+                         "[gpiotest] 2/4  TXEN(GPIO%d)=LOW   RXEN(GPIO%d)=LOW  ← 现在测 TXEN(GPIO%d)，应为 0V\r\n",
+                         PIN_LORA_TXEN, PIN_LORA_RXEN, PIN_LORA_TXEN);
+                break;
+            case 2:
+                snprintf(line, sizeof(line),
+                         "[gpiotest] 3/4  RXEN(GPIO%d)=HIGH  TXEN(GPIO%d)=LOW  ← 现在测 RXEN(GPIO%d)，应为 3.3V\r\n",
+                         PIN_LORA_RXEN, PIN_LORA_TXEN, PIN_LORA_RXEN);
+                break;
+            default:
+                snprintf(line, sizeof(line),
+                         "[gpiotest] 4/4  RXEN(GPIO%d)=HIGH  TXEN(GPIO%d)=HIGH ← 两脚都应为 3.3V\r\n",
+                         PIN_LORA_RXEN, PIN_LORA_TXEN);
+                break;
+        }
+        cli_print(line);
+
+        for (int s = 0; s < 5; s++) {
+            cli_print(".");
+            delay(1000);
+        }
+        cli_print("\r\n");
+    }
+
+    if (was_ready) {
+        radio_resume();
+        cli_print("[gpiotest] 结束，已交回 RadioLib 接管（接收态：RXEN=HIGH，TXEN=LOW）\r\n");
+    } else {
+        cfg_t cfg;
+        nvs_cfg_load(&cfg);
+        if (radio_init(cfg.freq, cfg.bw, cfg.sf, cfg.cr, cfg.syncword, cfg.power)) {
+            cli_print("[gpiotest] 结束，radio_init 成功，RadioLib 已重新接管两脚\r\n");
+        } else {
+            gpiotest_apply(false, false);
+            cli_print("[gpiotest] 结束，射频未就绪且 radio_init 失败：两脚已置 IDLE（双低），检查模块后 reset\r\n");
         }
     }
 }
@@ -356,6 +424,8 @@ void cli_handle_line(const char* line) {
         snprintf(line, sizeof(line), "EMlink 固件 %s · 协议 %s\r\n",
                  version_fw_str(), version_proto_str());
         cli_print(line);
+    } else if (strcmp(cmd, "gpiotest") == 0) {
+        cmd_gpiotest();
     } else {
         cli_print("未知命令，输入 help\r\n");
     }

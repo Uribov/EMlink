@@ -18,8 +18,12 @@
 #define PIN_LORA_DIO1   7     // 中断，E220 脚 13
 #define PIN_LORA_BUSY   13    // 忙检测，E220 脚 14
 #define PIN_LORA_NRST   12    // 复位 active-low，E220 脚 15
-#define PIN_LORA_RXEN   1     // 收使能 active-high，E220 脚 6
-#define PIN_LORA_TXEN   2     // 发使能 active-high，E220 脚 7
+#define PIN_LORA_RXEN   2     // 收使能 active-high，E220 脚 7
+#define PIN_LORA_TXEN   1     // 发使能 active-high，E220 脚 6
+// ⚠️ 实测修正（2026-10-18，gpiotest + 万用表）：RXEN/TXEN 与最初按手册的假设相反。
+// 现象：SPI 正常、模块=在线、参数一致，但空口收发全废（ADR 协商不上、信标几乎收不到）。
+// 用 `gpiotest` 强制 TXEN=HIGH 时，实测升到 3.3V 的是 GPIO1 → GPIO1 实为 TXEN。
+// 若换模块批次/改板，务必重新用 `gpiotest` 复核这两个引脚的对应关系。
 
 // ---- 硬件能力（nvs_cfg 集中校验用；换射频模块时同步改）----
 #define RADIO_FREQ_MIN_MHZ   862.0f   // E220-900M22S 频段下限
