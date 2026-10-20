@@ -29,6 +29,9 @@ static uint8_t g_role = ROLE_UNSET;
 static uint8_t g_node_id = 1;
 static uint8_t g_ttl = FRAME_DEF_TTL;
 
+// AIR 角色是否把 USB 收到的 MAVLink 帧转发到 LoRa（调试开关，默认关）
+static bool g_usb_fwd = false;
+
 // 接收状态机（uart / usb 各独立一套；mesh 来源是完整消息，不走状态机）
 struct rx_state_t {
     uint8_t buf[300];
@@ -84,6 +87,7 @@ void mav_router_init(uint8_t local_sysid) {
         g_role = c.role;
         if (c.node_id != 0) g_node_id = c.node_id;
         if (c.ttl != 0)     g_ttl = c.ttl;
+        g_usb_fwd = (c.usb_fwd != 0);
     }
 }
 
@@ -220,6 +224,7 @@ static void route_msg(const uint8_t* msg, size_t len, uint8_t source) {
     switch (g_role) {
         case ROLE_AIR:
             if (source == SRC_UART) to_lora = true;          // 飞控上行 -> LoRa
+            else if (source == SRC_USB) to_lora = g_usb_fwd; // 调试用：AIR 也把 USB 帧转发到空中
             else if (source == SRC_MESH) {
                 // GCS 下行 -> 只看是否发给自己飞控
                 if (!has_target || target_sysid == 0 || target_sysid == g_local_sysid) {

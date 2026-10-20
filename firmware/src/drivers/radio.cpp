@@ -29,6 +29,7 @@ static float g_last_snr  = 0.0f;
 static bool  g_suspended = false;   // OTA 维护模式：WiFi 与 LoRa 二选一
 static uint32_t g_rx_drop = 0;      // 收包队列满丢弃（P1-10）
 static uint32_t g_req_drop = 0;     // 射频请求队列满丢弃（P1-10）
+static volatile uint32_t g_rx_pkt_count = 0;   // 射频层成功读到包的次数
 
 // 当前调制参数（CAD 超时推导用；radio_init 设定、radio_set_sf 更新）
 static uint8_t g_cur_sf = LORA_DEF_SF;
@@ -405,6 +406,7 @@ static void rf_task_func(void* arg) {
         size_t len = 0;
         float rssi, snr;
         if (radio_readPacket(buf, FRAME_MTU, &len, &rssi, &snr) == 0 && len > 0) {
+            g_rx_pkt_count++;
             queue_item_t item = {};
             memcpy(item.data, buf, len);
             item.len  = (uint16_t)len;
@@ -436,4 +438,5 @@ uint8_t radio_init_fail_count(void)     { return g_init_fails; }
 uint32_t radio_req_timeout_count(void)  { return g_req_timeout; }
 
 uint32_t radio_rx_drop_count(void)  { return g_rx_drop; }
+uint32_t radio_rx_pkt_count(void)   { return g_rx_pkt_count; }
 uint32_t radio_req_drop_count(void) { return g_req_drop; }

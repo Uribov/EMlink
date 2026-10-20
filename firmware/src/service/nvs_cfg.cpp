@@ -30,6 +30,7 @@ void nvs_cfg_factory(cfg_t* out) {
     out->failsafe_s     = 3;
     out->auto_wifi_s    = 30;       // 上电 30s 无链路 → 自动进 WiFi 维护模式
     out->adr_en         = 1;        // ADR 默认开启
+    out->usb_fwd        = 0;        // AIR 默认不转发 USB 帧
     memset(out->name, 0, sizeof(out->name));
     memset(out->crypto_key, 0, sizeof(out->crypto_key));
     memset(out->wifi_ssid, 0, sizeof(out->wifi_ssid));
@@ -78,6 +79,12 @@ bool nvs_cfg_load(cfg_t* out) {
         if (!warned) { warned = true; Serial.println("[cfg] NVS 里的 adr_en 非法（只允许 0/1），已钳到 1"); }
         out->adr_en = 1;
     }
+    out->usb_fwd = p.getUChar("usb_fwd", 0);
+    if (out->usb_fwd > 1) {
+        static bool warned_usb_fwd = false;
+        if (!warned_usb_fwd) { warned_usb_fwd = true; Serial.println("[cfg] NVS 里的 usb_fwd 非法（只允许 0/1），已钳到 0"); }
+        out->usb_fwd = 0;
+    }
     p.getString("name", out->name, sizeof(out->name));
     memset(out->crypto_key, 0, sizeof(out->crypto_key));   // 默认关闭
     if (p.getBytesLength("crypto_key") == 16) p.getBytes("crypto_key", out->crypto_key, 16);
@@ -110,6 +117,7 @@ bool nvs_cfg_save(const cfg_t* in) {
     p.putUShort("failsafe_s", in->failsafe_s);
     p.putUShort("auto_wifi_s", in->auto_wifi_s);
     p.putUChar("adr_en", in->adr_en ? 1 : 0);
+    p.putUChar("usb_fwd", in->usb_fwd ? 1 : 0);
     p.putString("name", in->name);
     p.putBytes("crypto_key", in->crypto_key, 16);
     p.putString("wifi_ssid", in->wifi_ssid);
@@ -226,6 +234,10 @@ bool nvs_cfg_value_ok(const char* key, const char* val) {
         // 只接受 0/1；其它数字交给 nvs_cfg_set 钳到 1（与 adr_en 的"默认开"一致）
         return parse_long(val, &l);
     }
+    if (strcmp(key, "usb_fwd") == 0) {
+        // 只接受 0/1；其它数字交给 nvs_cfg_set 钳到 0
+        return parse_long(val, &l);
+    }
     if (strcmp(key, "name") == 0) {
         size_t n = strlen(val);
         return n >= 1 && n <= 15;
@@ -329,6 +341,13 @@ bool nvs_cfg_set(const char* key, const char* val) {
             l = 1;
         }
         p.putUChar("adr_en", (uint8_t)l);
+    } else if (strcmp(key, "usb_fwd") == 0) {
+        long l = atol(val);
+        if (l != 0 && l != 1) {
+            Serial.printf("[cfg] usb_fwd=%ld 非法（只允许 0/1），已钳到 0\n", l);
+            l = 0;
+        }
+        p.putUChar("usb_fwd", (uint8_t)l);
     } else if (strcmp(key, "name") == 0) {
         p.putString("name", val);
     } else {
@@ -380,6 +399,9 @@ bool nvs_cfg_get(const char* key, char* val, size_t len) {
     } else if (strcmp(key, "adr_en") == 0) {
         uint8_t en = p.getUChar("adr_en", 1);
         snprintf(val, len, "%u", en > 1 ? 1 : en);
+    } else if (strcmp(key, "usb_fwd") == 0) {
+        uint8_t en = p.getUChar("usb_fwd", 0);
+        snprintf(val, len, "%u", en > 1 ? 0 : en);
     } else if (strcmp(key, "name") == 0) {
         p.getString("name", val, len);
     } else {

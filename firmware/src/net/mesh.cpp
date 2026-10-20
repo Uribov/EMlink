@@ -46,6 +46,11 @@ static uint32_t g_dedup_evict = 0;
 static uint32_t g_drop_auth = 0;
 static uint32_t g_last_rx_ms = 0;
 
+// 数据帧收发诊断计数（只增不减，32 位读写原子）
+static volatile uint32_t g_tx_data_count = 0;
+static volatile uint32_t g_rx_data_count = 0;
+static volatile uint32_t g_deliver_count = 0;
+
 // T-2：协议版本宣告诊断（BEACON 携带 1 字节协议版本）
 static uint32_t g_proto_mismatch = 0;   // 版本不一致的信标计数
 static uint8_t  g_peer_proto = 0;       // 最近一次收到的对端协议版本（0 = 未收到/老版本无此字段）
@@ -215,7 +220,9 @@ bool mesh_send(uint8_t dst_id, uint8_t qos, bool ack_req,
     item.len = (uint16_t)n;
     item.qos = qos;
     item.ack_req = ack_req ? 1 : 0;
-    return rtos_tx_enqueue(&item);
+    bool ok = rtos_tx_enqueue(&item);
+    if (ok) g_tx_data_count++;
+    return ok;
 }
 
 // ping 探测：单播发 FRAME_PING，等 ACK 测 RTT
@@ -360,6 +367,9 @@ uint32_t mesh_dedup_evict_count() { return g_dedup_evict; }
 uint32_t mesh_drop_auth_count() { return g_drop_auth; }
 uint32_t mesh_rx_count()       { return g_rx; }
 uint32_t mesh_last_rx_ms()     { return g_last_rx_ms; }
+uint32_t mesh_tx_data_count()  { return g_tx_data_count; }
+uint32_t mesh_rx_data_count()  { return g_rx_data_count; }
+uint32_t mesh_deliver_count()  { return g_deliver_count; }
 uint32_t mesh_id_conflict_count() { return g_id_conflict; }
 
 // T-2：协议版本宣告诊断
@@ -388,6 +398,7 @@ static void mesh_task_func(void* arg) {
         }
         g_rx++;
         g_last_rx_ms = millis();
+        if (f.type == FRAME_DATA) g_rx_data_count++;
 
         // 撞号检测：收到“自称本机 node_id”的帧，但 seq 不在本机最近 32 个已发序号里
         // → 极有可能是另一台节点用了同一个 node_id（本机自己中继回来的帧会在历史里，不计）
@@ -463,7 +474,10 @@ static void mesh_task_func(void* arg) {
                     rx.enc         = false;
                 }
             }
-            if (deliver && g_rx_cb) g_rx_cb(&rx, (float)item.rssi, (float)item.snr);
+            if (deliver && g_rx_cb) {
+                g_rx_cb(&rx, (float)item.rssi, (float)item.snr);
+                g_deliver_count++;
+            }
         }
 
         // 转发判定

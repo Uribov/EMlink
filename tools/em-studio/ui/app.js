@@ -13,6 +13,28 @@
   const MAV_MAX_FRAMES = 200;
   const HEARTBEAT_PAYLOAD_HEX = '000000000000000003';
 
+  // 固件 CLI 命令表（与 firmware/src/app/cli.md 对齐）：用于输入提示与快捷按钮。
+  const CMD_SPECS = {
+    status:   { usage: 'status',                desc: '分层状态：驱动 / 中间 / 应用' },
+    scan:     { usage: 'scan',                  desc: '最近收包 rssi/snr + 邻居表' },
+    ping:     { usage: 'ping <node_id>',        desc: '发 ping 测 RTT 和 rssi' },
+    led:      { usage: 'led [stream on|off]',   desc: '查看灯态 / 开关灯态推送' },
+    ver:      { usage: 'ver',                   desc: '固件版本 + 协议版本' },
+    stats:    { usage: 'stats',                 desc: '收发与丢弃统计' },
+    get:      { usage: 'get [key]',             desc: '读参数（不带 key 打印全部）' },
+    set:      { usage: 'set <key> <value>',     desc: '写参数，直接存 NVS' },
+    save:     { usage: 'save',                  desc: '保存并触发参数重载' },
+    reset:    { usage: 'reset',                 desc: '重启板子（需二次确认）' },
+    factory:  { usage: 'factory',               desc: '恢复出厂默认' },
+    role:     { usage: 'role air|gcs|relay',    desc: '改角色' },
+    crypto:   { usage: 'crypto <32hex>|off',    desc: '设置 / 关闭加密密钥' },
+    wifi:     { usage: 'wifi [off]',            desc: '开关 WiFi 维护模式' },
+    cfg:      { usage: 'cfg <key> <val>',       desc: '广播参数给全网' },
+    gpiotest: { usage: 'gpiotest',              desc: '强制 RXEN/TXEN 电平测试（20 秒）' },
+    help:     { usage: 'help',                  desc: '命令列表' }
+  };
+  const CMD_HISTORY_MAX = 50;
+
   const state = {
     ports: [],
     order: [],
@@ -27,6 +49,7 @@
     statusTimer: null,
     flash: { deviceId: null, running: false, timer: null },
     defaultFirmware: { path: '', exists: false, size: 0 },
+    collapsedLayers: new Set(),
   };
 
   function $(id) {
@@ -86,6 +109,7 @@
   function appendLine(tab, text) {
     text = typeof text === 'string' ? text : String(text);
     ensureTabState(tab);
+    parseLinkMetrics(tab, text);
     tab.lines.push(text);
     tab.lineTs.push(Date.now());
     if (tab.lines.length > MAX_LINES) {
@@ -118,6 +142,92 @@
     }
     out.appendChild(frag);
     out.scrollTop = out.scrollHeight;
+  }
+
+  // ---- 链路指标：从 ping / scan 的输出行里抠数字 ----
+  function linkLevel(kind, value) {
+    if (value === null || value === undefined || Number.isNaN(value)) return 'off';
+    if (kind === 'rtt') {
+      if (value <= 300) return 'ok';
+      if (value <= 800) return 'warn';
+      return 'bad';
+    }
+    if (kind === 'rssi') {
+      if (value >= -100) return 'ok';
+      if (value >= -112) return 'warn';
+      return 'bad';
+    }
+    if (kind === 'snr') {
+      if (value >= 5) return 'ok';
+      if (value >= 0) return 'warn';
+      return 'bad';
+    }
+    return 'off';
+  }
+
+  function fmtLinkValue(kind, value) {
+    if (value === null || value === undefined || Number.isNaN(value)) return '—';
+    if (kind === 'snr') return value.toFixed(1);
+    return String(Math.round(value));
+  }
+
+  function renderLinkMetrics(tab) {
+    const box = $('link-metrics');
+    if (!box) return;
+    const link = tab && tab.link;
+    const hasAny = !!link && (link.rtt !== null || link.rssi !== null || link.snr !== null);
+    if (!hasAny) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+
+    const cells = [
+      ['rtt', 'lm-rtt-box', 'lm-rtt'],
+      ['rssi', 'lm-rssi-box', 'lm-rssi'],
+      ['snr', 'lm-snr-box', 'lm-snr']
+    ];
+    for (const cell of cells) {
+      const kind = cell[0];
+      const boxEl = $(cell[1]);
+      const valEl = $(cell[2]);
+      if (!boxEl || !valEl) continue;
+      const cls = 'lm ' + linkLevel(kind, link[kind]);
+      if (boxEl.className !== cls) boxEl.className = cls;
+      const txt = fmtLinkValue(kind, link[kind]);
+      if (valEl.textContent !== txt) valEl.textContent = txt;
+    }
+
+    const ageEl = $('lm-age');
+    if (ageEl && link.ts) {
+      const d = new Date(link.ts);
+      const pad = function (n) { return String(n).padStart(2, '0'); };
+      const txt = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+      if (ageEl.textContent !== txt) ageEl.textContent = txt;
+    }
+  }
+
+  function parseLinkMetrics(tab, text) {
+    const line = String(text || '');
+    const isPing = line.indexOf('rtt=') !== -1;
+    const isScan = line.indexOf('最近收包') !== -1;
+    if (!isPing && !isScan) return;
+
+    const link = tab.link;
+    let changed = false;
+
+    if (isPing) {
+      const m = line.match(/rtt=(\d+(?:\.\d+)?)\s*ms/i);
+      if (m) { link.rtt = Number(m[1]); changed = true; }
+    }
+    const r = line.match(/rssi=(-?\d+(?:\.\d+)?)/i);
+    if (r) { link.rssi = Number(r[1]); changed = true; }
+    const s = line.match(/snr=(-?\d+(?:\.\d+)?)/i);
+    if (s) { link.snr = Number(s[1]); changed = true; }
+
+    if (!changed) return;
+    link.ts = Date.now();
+    if (tab.id === state.activeId) renderLinkMetrics(tab);
   }
 
   function statusLayerLevel(layer) {
@@ -252,13 +362,35 @@
 
         const head = document.createElement('div');
         head.className = 'status-card-head';
+        head.title = '点击折叠 / 展开这一层';
         const dot = document.createElement('span');
         dot.className = 'st';
         dot.appendChild(document.createElement('i'));
         const name = document.createElement('span');
         name.className = 'status-layer';
+        const line = document.createElement('span');
+        line.className = 'status-line';
+        const fold = document.createElement('span');
+        fold.className = 'status-fold';
         head.appendChild(dot);
         head.appendChild(name);
+        head.appendChild(line);
+        head.appendChild(fold);
+
+        function applyCollapsed(collapsed) {
+          card.classList.toggle('collapsed', collapsed);
+          fold.textContent = collapsed ? '+' : '−';
+          head.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        }
+        if (state.collapsedLayers.has(layerName)) applyCollapsed(true);
+        else applyCollapsed(false);
+
+        head.addEventListener('click', function () {
+          const next = !card.classList.contains('collapsed');
+          if (next) state.collapsedLayers.add(layerName);
+          else state.collapsedLayers.delete(layerName);
+          applyCollapsed(next);
+        });
 
         const stale = document.createElement('div');
         stale.className = 'status-stale';
@@ -423,6 +555,9 @@
     if (!('statusData' in tab)) tab.statusData = null;
     if (typeof tab.statusStale !== 'boolean') tab.statusStale = false;
     if (typeof tab.statusError !== 'string') tab.statusError = '';
+    if (!tab.link || typeof tab.link !== 'object') {
+      tab.link = { rtt: null, rssi: null, snr: null, ts: 0 };
+    }
     if (tab.mode !== 'cli' && tab.mode !== 'mavlink') tab.mode = 'cli';
     if (!Array.isArray(tab.frames)) tab.frames = [];
     if (!('selectedFrame' in tab)) tab.selectedFrame = null;
@@ -1145,6 +1280,8 @@
       stopStatusPolling();
       const cards = $('status-cards');
       if (cards) cards.hidden = true;
+      const metrics = $('link-metrics');
+      if (metrics) metrics.hidden = true;
       renderVerdict(null);
       renderMavPanel(tab);
       return;
@@ -1157,11 +1294,14 @@
 
     if (tab.status === 'connected') {
       renderStatusCards(tab);
+      renderLinkMetrics(tab);
       startStatusPolling();
     } else {
       stopStatusPolling();
       const cards = $('status-cards');
       if (cards) cards.hidden = true;
+      const metrics = $('link-metrics');
+      if (metrics) metrics.hidden = true;
       renderVerdict(null);
     }
   }
@@ -1491,7 +1631,7 @@
     return state.tabs.get(state.activeId);
   }
 
-  async function exportSession(kind) {
+  async function exportSession(kind, frameList, nameHint) {
     const tab = activeTab();
     if (!tab) {
       showToast('先连接设备再导出', true);
@@ -1499,10 +1639,12 @@
     }
     ensureTabState(tab);
 
-    const consoleLines = tab.lines.map(function (text, index) {
+    // 单帧导出：只带这一帧、不带会话日志；否则导出全会话
+    const single = Array.isArray(frameList);
+    const consoleLines = single ? [] : tab.lines.map(function (text, index) {
       return { ts: tab.lineTs[index] || null, text: text };
     });
-    const frames = tab.frames.slice(-MAV_MAX_FRAMES);
+    const frames = single ? frameList.slice() : tab.frames.slice(-MAV_MAX_FRAMES);
     const device = {
       port: tab.port,
       serial: tab.serial,
@@ -1516,8 +1658,9 @@
         kind,
         consoleLines,
         frames,
-        tab.statusData || null,
-        device
+        single ? null : (tab.statusData || null),
+        device,
+        nameHint || ''
       );
       if (!res || res.ok !== true) {
         if (res && res.error === 'cancelled') return;
@@ -1702,7 +1845,7 @@
     row.appendChild(payload);
     row.appendChild(crc);
 
-    row.addEventListener('click', function () {
+    function selectRow() {
       tab.selectedFrame = frame;
       const rows = $('mav-rows');
       for (const selected of rows.querySelectorAll('.mav-row.selected')) {
@@ -1710,6 +1853,14 @@
       }
       row.classList.add('selected');
       renderMavDetail(tab);
+    }
+
+    row.addEventListener('click', selectRow);
+    row.addEventListener('contextmenu', function (ev) {
+      // 阻止冒泡：否则 document 的 contextmenu 监听会立刻把刚弹出的菜单关掉
+      ev.stopPropagation();
+      selectRow();
+      openMavMenu(ev, frame);
     });
 
     if (animate) {
@@ -1726,6 +1877,73 @@
       ? tab.frames.filter(function (frame) { return !frame.crc_ok; }).length
       : 0;
     $('mav-count').textContent = count + ' 帧' + (bad ? ' · CRC ✗ ' + bad : '');
+  }
+
+  // ---- 帧列表：单帧操作 + 右键菜单 ----
+  let mavMenuFrame = null;
+
+  function removeFrame(tab, frame) {
+    if (!tab || !frame) return false;
+    const index = tab.frames.indexOf(frame);
+    if (index === -1) return false;
+    tab.frames.splice(index, 1);
+    if (tab.selectedFrame === frame) {
+      tab.selectedFrame = null;
+      if (tab.id === state.activeId) renderMavDetail(tab);
+    }
+    if (tab.id === state.activeId) {
+      const rows = $('mav-rows');
+      const el = rows && rows.querySelector('.mav-row[data-key="' + String(frame._k || '') + '"]');
+      if (el) el.remove();
+      updateMavCount(tab);
+    }
+    return true;
+  }
+
+  function clearFrames(tab) {
+    if (!tab) return 0;
+    const count = tab.frames.length;
+    tab.frames = [];
+    tab.selectedFrame = null;
+    tab.frameSeq = 0;
+    if (tab.id === state.activeId) {
+      renderMavTable(tab);
+      renderMavDetail(tab);
+    }
+    return count;
+  }
+
+  function closeMavMenu() {
+    const menu = $('mav-menu');
+    if (menu && !menu.hidden) menu.hidden = true;
+    mavMenuFrame = null;
+  }
+
+  function openMavMenu(ev, frame) {
+    const menu = $('mav-menu');
+    if (!menu) return;
+    ev.preventDefault();
+    mavMenuFrame = frame;
+    menu.hidden = false;
+    const rect = menu.getBoundingClientRect();
+    const maxX = window.innerWidth - rect.width - 8;
+    const maxY = window.innerHeight - rect.height - 8;
+    menu.style.left = Math.max(4, Math.min(ev.clientX, maxX)) + 'px';
+    menu.style.top = Math.max(4, Math.min(ev.clientY, maxY)) + 'px';
+  }
+
+  function mavMenuAction(act) {
+    const tab = activeTab();
+    const frame = mavMenuFrame;
+    closeMavMenu();
+    if (!tab || !frame) return;
+    if (act === 'del') {
+      if (removeFrame(tab, frame)) showToast('已删除 1 帧');
+      return;
+    }
+    if (act === 'json' || act === 'txt') {
+      exportSession(act, [frame], 'frame' + frame.msgid);
+    }
   }
 
   function renderMavTable(tab) {
@@ -2089,22 +2307,125 @@
     $('btn-connect').addEventListener('click', onConnectClick);
     $('port-select').addEventListener('change', updateConnectButton);
 
+    const cmdInput = $('cmd-input');
+    const cmdHint = $('cmd-hint');
+    const cmdHistory = [];
+    let historyPos = -1;
+    let historyDraft = '';
+
+    function pushHistory(text) {
+      const t = (text || '').trim();
+      if (!t) return;
+      if (cmdHistory[cmdHistory.length - 1] !== t) {
+        cmdHistory.push(t);
+        if (cmdHistory.length > CMD_HISTORY_MAX) cmdHistory.shift();
+      }
+      historyPos = -1;
+      historyDraft = '';
+    }
+
+    function showHint() {
+      const text = cmdInput.value.trim();
+      if (!text) {
+        cmdHint.hidden = true;
+        cmdHint.textContent = '';
+        return;
+      }
+      const head = text.split(/\s+/)[0].toLowerCase();
+      const spec = CMD_SPECS[head];
+      cmdHint.hidden = false;
+      cmdHint.textContent = spec
+        ? spec.usage + '  —  ' + spec.desc
+        : '未知命令：' + head + '（输入 help 查看全部）';
+    }
+
+    cmdInput.addEventListener('input', showHint);
+
+    cmdInput.addEventListener('keydown', function (ev) {
+      if (ev.key === 'ArrowUp') {
+        if (!cmdHistory.length) return;
+        ev.preventDefault();
+        if (historyPos === -1) {
+          historyDraft = cmdInput.value;
+          historyPos = cmdHistory.length - 1;
+        } else if (historyPos > 0) {
+          historyPos -= 1;
+        }
+        cmdInput.value = cmdHistory[historyPos];
+        showHint();
+      } else if (ev.key === 'ArrowDown') {
+        if (historyPos === -1) return;
+        ev.preventDefault();
+        if (historyPos < cmdHistory.length - 1) {
+          historyPos += 1;
+          cmdInput.value = cmdHistory[historyPos];
+        } else {
+          historyPos = -1;
+          cmdInput.value = historyDraft;
+          historyDraft = '';
+        }
+        showHint();
+      } else if (ev.key === 'Escape') {
+        cmdInput.value = '';
+        historyPos = -1;
+        historyDraft = '';
+        showHint();
+      }
+    });
+
     $('cmd-form').addEventListener('submit', async function (ev) {
       ev.preventDefault();
-      const input = $('cmd-input');
-      const text = input.value;
-      input.value = '';
+      const text = cmdInput.value;
+      cmdInput.value = '';
+      showHint();
+      pushHistory(text);
       const ok = await sendCommand(text);
       if (!ok) {
-        input.value = text;
-        input.focus();
+        cmdInput.value = text;
+        cmdInput.focus();
+        showHint();
       }
     });
 
     const quick = document.querySelectorAll('.quick [data-cmd]');
     for (const button of quick) {
       button.addEventListener('click', function () {
-        sendCommand(button.dataset.cmd);
+        const cmd = button.dataset.cmd;
+
+        // 需要参数的命令：填进输入框并聚焦，让用户补参数
+        if (button.dataset.needsArg) {
+          cmdInput.value = cmd + ' ';
+          cmdInput.focus();
+          cmdInput.setSelectionRange(cmdInput.value.length, cmdInput.value.length);
+          showHint();
+          return;
+        }
+
+        // 危险命令：连点两次才执行
+        if (button.dataset.confirm) {
+          if (button.dataset.armed === '1') {
+            button.dataset.armed = '';
+            button.textContent = cmd;
+            button.classList.remove('armed');
+            pushHistory(cmd);
+            sendCommand(cmd);
+            return;
+          }
+          button.dataset.armed = '1';
+          button.textContent = '确认?';
+          button.classList.add('armed');
+          setTimeout(function () {
+            if (button.dataset.armed === '1') {
+              button.dataset.armed = '';
+              button.textContent = cmd;
+              button.classList.remove('armed');
+            }
+          }, 3000);
+          return;
+        }
+
+        pushHistory(cmd);
+        sendCommand(cmd);
       });
     }
 
@@ -2124,6 +2445,37 @@
 
     $('btn-mav-send').addEventListener('click', sendMavFrame);
     $('btn-mav-request').addEventListener('click', sendRequestParams);
+
+    $('btn-mav-clear').addEventListener('click', function () {
+      const tab = activeTab();
+      if (!tab) return;
+      const count = clearFrames(tab);
+      if (count) showToast('已清空 ' + count + ' 帧');
+    });
+
+    const mavMenu = $('mav-menu');
+    if (mavMenu) {
+      for (const item of mavMenu.querySelectorAll('[data-act]')) {
+        item.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          mavMenuAction(item.dataset.act);
+        });
+      }
+    }
+    document.addEventListener('click', function (ev) {
+      const menu = $('mav-menu');
+      if (menu && !menu.hidden && !menu.contains(ev.target)) closeMavMenu();
+    });
+    document.addEventListener('contextmenu', function (ev) {
+      const menu = $('mav-menu');
+      if (menu && !menu.hidden && !menu.contains(ev.target)) closeMavMenu();
+    });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape') closeMavMenu();
+    });
+    window.addEventListener('resize', closeMavMenu);
+    const mavRows = $('mav-rows');
+    if (mavRows) mavRows.addEventListener('scroll', closeMavMenu);
     $('mav-payload').addEventListener('keydown', function (ev) {
       if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') {
         ev.preventDefault();

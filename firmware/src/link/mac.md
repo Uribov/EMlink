@@ -49,6 +49,7 @@
 - `g_node_id`：本机地址（mac_start 从 NVS 读）
 - `g_waiting_ack` / `g_ack_arrived` / `g_wait_seq`：ACK 等待状态
 - `g_ack_ok` / `g_ack_miss` / `g_retry` / `g_tx`：统计计数
+- `g_tx_call` / `g_tx_done` / `g_tx_err_radio` / `g_tx_drop_rate` / `g_tx_duty_wait` / `g_tx_lbt_fail`：F22 发送分项诊断计数（`volatile`，只增不减、无锁），分别对应进入 `mac_send`、成功返回（`MAC_OK`/ACK 成功）、`radio_transmit` 非 0、令牌桶丢弃、`duty_reserve` 等待轮次、LBT 三次仍忙硬发；经 `mac_tx_*()` getter 暴露给 `cli status`
 
 ### mac_send 流程（同步阻塞）
 1. `airtime = radio_airtime_ms(len)`（未就绪时按满预算 100ms 记账）

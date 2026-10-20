@@ -176,21 +176,49 @@
       <h2>诊断台<span class="hd-gap" aria-hidden="true"></span><span class="led-tri" id="led-tri" aria-hidden="true"></span></h2>
       <div class="quick">
         <button class="btn compact ghost" type="button" data-cmd="status">status</button>
-        <button class="btn compact ghost" type="button" data-cmd="stats">stats</button>
-        <button class="btn compact ghost" type="button" data-cmd="get">get</button>
+        <button class="btn compact ghost" type="button" data-cmd="scan">scan</button>
+        <button class="btn compact ghost" type="button" data-cmd="ping" data-needs-arg="1">ping</button>
+        <button class="btn compact ghost" type="button" data-cmd="led">led</button>
         <button class="btn compact ghost" type="button" data-cmd="ver">ver</button>
+        <button class="btn compact ghost" type="button" data-cmd="get">get</button>
         <button class="btn compact ghost" type="button" data-cmd="help">help</button>
+        <button class="btn compact ghost danger" type="button" data-cmd="reset" data-confirm="1">reset</button>
         <button id="btn-export-log" class="btn compact ghost export-log" type="button">导出日志</button>
+      </div>
+      <div id="link-metrics" class="link-metrics" hidden>
+        <div class="lm" id="lm-rtt-box">
+          <span class="lm-dot"></span>
+          <span class="lm-k">RTT</span>
+          <span class="lm-v" id="lm-rtt">—</span>
+          <span class="lm-u">ms</span>
+        </div>
+        <div class="lm" id="lm-rssi-box">
+          <span class="lm-dot"></span>
+          <span class="lm-k">RSSI</span>
+          <span class="lm-v" id="lm-rssi">—</span>
+          <span class="lm-u">dBm</span>
+        </div>
+        <div class="lm" id="lm-snr-box">
+          <span class="lm-dot"></span>
+          <span class="lm-k">SNR</span>
+          <span class="lm-v" id="lm-snr">—</span>
+          <span class="lm-u">dB</span>
+        </div>
+        <div class="lm lm-age">
+          <span class="lm-k">采样</span>
+          <span class="lm-v" id="lm-age">—</span>
+        </div>
       </div>
       <div id="diag-verdict" class="verdict" hidden></div>
       <div id="status-cards" class="status-cards" hidden></div>
       <div id="diag-output" class="output" role="log" aria-live="polite"></div>
       <form id="cmd-form" class="cmd-row" autocomplete="off">
         <span class="prompt">&gt;</span>
-        <input id="cmd-input" class="cmd-input" type="text" placeholder="连接后可发送命令"
+        <input id="cmd-input" class="cmd-input" type="text" placeholder="输入命令，回车发送（↑↓ 调历史）"
                autocomplete="off" spellcheck="false" disabled>
         <button id="btn-send" class="btn compact primary" type="submit" disabled>发送</button>
       </form>
+      <div id="cmd-hint" class="cmd-hint" hidden></div>
     </div>
 
     <div id="panel-mav" class="panel panel-mav" hidden>
@@ -224,6 +252,7 @@
         </label>
         <button id="btn-mav-request" class="btn compact ghost" type="button">请求参数</button>
         <button id="btn-export-json" class="btn compact ghost" type="button">导出 JSON</button>
+        <button id="btn-mav-clear" class="btn compact ghost" type="button">全部删除</button>
         <span id="mav-count" class="mav-count">0 帧</span>
       </div>
 
@@ -258,6 +287,12 @@
       </div>
     </div>
   </main>
+</div>
+
+<div id="mav-menu" class="mav-menu" hidden>
+  <button type="button" data-act="json">导出该帧（JSON）</button>
+  <button type="button" data-act="txt">导出该帧（文本）</button>
+  <button type="button" data-act="del" class="del">删除该帧</button>
 </div>
 
 <div id="toast" class="toast" hidden></div>

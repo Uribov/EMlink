@@ -71,6 +71,7 @@ void radio_resume();
 void radio_start(void);
 
 uint32_t radio_rx_drop_count(void);    // 收包队列满丢弃数（P1-10）
+uint32_t radio_rx_pkt_count(void);     // 射频层成功读到包的次数（F23）
 
 // 最近一次射频初始化错误码（0 = 无错误；错误码见 RadioLib）
 int16_t radio_last_error(void);

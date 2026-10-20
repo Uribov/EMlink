@@ -19,8 +19,10 @@
 #include "../service/version.h"
 #include "../app/stats.h"
 #include "../link/duty.h"
+#include "../link/mac.h"
 #include "../link/adr.h"
 #include "../service/ratelimit.h"
+#include <WiFi.h>
 #include <string.h>
 
 static TaskHandle_t g_cli_task = nullptr;
@@ -54,13 +56,14 @@ void cli_help() {
               "  cfg <键> <值>        广播参数给全网（GCS）\r\n"
               "  ver                  看固件/协议版本\r\n"
               "  gpiotest             强制测试 RXEN/TXEN 电平（约20秒）\r\n"
+              "  wifiscan             扫描周围 AP（射频诊断，约3~5秒）\r\n"
               "  help                 帮助\r\n");
 }
 
 static void cmd_get_all() {
     const char* keys[] = {"role","node_id","sysid","freq","sf","bw","cr","power",
                           "syncword","uart_baud","ttl","ack_timeout_ms","retries",
-                          "beacon_s","failsafe_s","adr_en","name"};
+                          "beacon_s","failsafe_s","adr_en","usb_fwd","name"};
     char val[64];
     for (size_t i = 0; i < sizeof(keys)/sizeof(keys[0]); i++) {
         if (nvs_cfg_get(keys[i], val, sizeof(val))) {
@@ -135,6 +138,46 @@ static void cmd_gpiotest() {
             cli_print("[gpiotest] 结束，射频未就绪且 radio_init 失败：两脚已置 IDLE（双低），检查模块后 reset\r\n");
         }
     }
+}
+
+static void cmd_wifiscan() {
+    char line[96];
+
+    cli_print("WiFi 扫描中（LoRa 暂停，约 3~5 秒）…\r\n");
+
+    if (ota_active()) {
+        ota_stop();
+        delay(300);
+    }
+
+    radio_suspend();
+
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
+    int n = WiFi.scanNetworks();
+
+    if (n < 0) {
+        snprintf(line, sizeof(line), "扫描失败: err=%d\r\n", n);
+        cli_print(line);
+    } else if (n == 0) {
+        cli_print("扫到 0 个 AP —— 射频接收未工作\r\n");
+    } else {
+        snprintf(line, sizeof(line), "扫到 %d 个 AP：\r\n", n);
+        cli_print(line);
+        int show = n > 10 ? 10 : n;
+        for (int i = 0; i < show; i++) {
+            String ssid = WiFi.SSID(i);
+            snprintf(line, sizeof(line), "  %s  rssi=%d ch=%d\r\n",
+                     ssid.c_str(), (int)WiFi.RSSI(i), (int)WiFi.channel(i));
+            cli_print(line);
+        }
+    }
+
+    WiFi.scanDelete();
+    WiFi.mode(WIFI_OFF);
+    radio_resume();
+
+    cli_print("扫描结束，LoRa 已恢复\r\n");
 }
 
 void cli_handle_line(const char* line) {
@@ -282,10 +325,32 @@ void cli_handle_line(const char* line) {
                  (unsigned)frag_slot_evict_count(), (unsigned)rtos_tx_drop_count());
         cli_print(line);
         // 中间层·MAVLink：USB 侧收帧与校验结果，确认电脑发出的帧板子是否解析成功。
+        char usb_fwd[8] = {0};
+        if (!nvs_cfg_get("usb_fwd", usb_fwd, sizeof(usb_fwd))) snprintf(usb_fwd, sizeof(usb_fwd), "0");
         snprintf(line, sizeof(line),
-                 "MAV: USB收帧=%u  校验失败=%u\r\n",
+                 "MAV: USB收帧=%u  校验失败=%u  usb_fwd=%s\r\n",
                  (unsigned)mav_router_usb_rx_count(),
-                 (unsigned)mav_router_usb_badcrc_count());
+                 (unsigned)mav_router_usb_badcrc_count(),
+                 (strcmp(usb_fwd, "1") == 0) ? "on" : "off");
+        cli_print(line);
+        snprintf(line, sizeof(line),
+                 "数据帧: 发=%u  收=%u  投递=%u\r\n",
+                 (unsigned)mesh_tx_data_count(),
+                 (unsigned)mesh_rx_data_count(),
+                 (unsigned)mesh_deliver_count());
+        cli_print(line);
+        snprintf(line, sizeof(line),
+                 "MAC: 调用=%u 完成=%u 发射错=%u 限流=%u 占空等待=%u LBT硬发=%u ACK成=%u ACK失=%u 重试=%u\r\n",
+                 (unsigned)mac_tx_call(), (unsigned)mac_tx_done(),
+                 (unsigned)mac_tx_err_radio(), (unsigned)mac_tx_drop_rate(),
+                 (unsigned)mac_tx_duty_wait(), (unsigned)mac_tx_lbt_fail(),
+                 (unsigned)mac_ack_ok(), (unsigned)mac_ack_miss(),
+                 (unsigned)mac_retries());
+        cli_print(line);
+        snprintf(line, sizeof(line),
+                 "收包: 射频=%u  mesh=%u  DATA=%u\r\n",
+                 (unsigned)radio_rx_pkt_count(), (unsigned)mesh_rx_count(),
+                 (unsigned)mesh_rx_data_count());
         cli_print(line);
         // 中间层·速率：ADR/信标/相位协商，属于链路自适应。
         snprintf(line, sizeof(line),
@@ -426,6 +491,8 @@ void cli_handle_line(const char* line) {
         cli_print(line);
     } else if (strcmp(cmd, "gpiotest") == 0) {
         cmd_gpiotest();
+    } else if (strcmp(cmd, "wifiscan") == 0) {
+        cmd_wifiscan();
     } else {
         cli_print("未知命令，输入 help\r\n");
     }

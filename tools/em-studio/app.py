@@ -596,6 +596,7 @@ class Api:
         frames=None,
         status=None,
         device=None,
+        name_hint="",
     ):
         kind = str(kind or "txt").lower()
         if kind not in ("txt", "json"):
@@ -618,6 +619,9 @@ class Api:
         if not node_label:
             node_label = "unknown"
         default_name = "EMStudio_{}_{}.{}".format(node_label, stamp, kind)
+        hint = re.sub(r"[^0-9A-Za-z_-]+", "", str(name_hint or ""))
+        if hint:
+            default_name = "EMStudio_{}_{}_{}.{}".format(node_label, hint, stamp, kind)
 
         directory = os.path.expanduser("~")
         if not os.path.isdir(directory):

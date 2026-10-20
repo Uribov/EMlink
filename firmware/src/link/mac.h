@@ -40,6 +40,13 @@ uint32_t mac_tx_count();
 uint32_t mac_ack_ok();
 uint32_t mac_ack_miss();
 uint32_t mac_retries();
+// 发送分项计数（F22 诊断）
+uint32_t mac_tx_call();
+uint32_t mac_tx_err_radio();
+uint32_t mac_tx_drop_rate();
+uint32_t mac_tx_duty_wait();
+uint32_t mac_tx_lbt_fail();
+uint32_t mac_tx_done();
 
 // 启动 MAC 任务（内部 xTaskCreate mac_task_func，任务函数为模块内 static）
 void mac_start(void);

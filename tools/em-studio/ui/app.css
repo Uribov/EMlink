@@ -75,6 +75,12 @@ animation:line-in .18s ease-out both}
 .cmd-input:disabled{color:var(--dim);border-color:var(--line2)}
 .cmd-input:disabled::placeholder{color:var(--dim)}
 
+.cmd-hint{margin-top:6px;flex:none;font-size:11px;line-height:1.5;
+letter-spacing:.03em;color:var(--muted);
+font-family:ui-monospace,Menlo,Consolas,monospace;
+white-space:pre-wrap;word-break:break-word}
+.btn.armed{color:var(--text);border-color:var(--text)}
+
 .st.live i{animation:breathe 2.4s ease-in-out infinite}
 @keyframes breathe{0%,100%{opacity:.4;transform:scale(.82)}50%{opacity:1;transform:scale(1)}}
 
@@ -176,6 +182,26 @@ option{background:var(--bg);color:var(--text)}
   50%,  100%  { border-top-color:transparent; }   /* 灭：透明（深色面板上等同不亮） */
 }
 
+/* ---- 链路指标条：ping / scan 结果的 RTT · RSSI · SNR ---- */
+.link-metrics{
+  flex:none;display:flex;margin-bottom:10px;
+  border:1px solid var(--line);background:#0a0a0a;
+  font-family:ui-monospace,Menlo,Consolas,monospace;
+}
+.link-metrics .lm{
+  flex:1 1 0;min-width:0;display:flex;align-items:baseline;gap:6px;
+  padding:6px 10px;border-right:1px solid var(--line2);
+}
+.link-metrics .lm:last-child{border-right:0}
+.lm-dot{flex:none;align-self:center;width:5px;height:5px;border-radius:50%;background:var(--dim)}
+.lm.ok .lm-dot{background:var(--ok)}
+.lm.warn .lm-dot{background:#eab308}
+.lm.bad .lm-dot{background:var(--err)}
+.lm-k{font-size:9px;font-weight:600;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;white-space:nowrap}
+.lm-v{font-size:14px;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+.lm-u{font-size:9px;color:var(--dim);white-space:nowrap}
+.lm-age .lm-v{font-size:11px;color:var(--muted)}
+
 /* ---- D3a：status 三层结构化状态卡（极致集成排版） ---- */
 .status-cards{
   flex:0 0 auto;
@@ -187,8 +213,18 @@ option{background:var(--bg);color:var(--text)}
 .status-card-head{
   display:flex;align-items:center;gap:8px;margin-bottom:5px;
   font-size:9px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);
+  cursor:pointer;user-select:none;
 }
-.status-card-head:after{content:"";flex:1;height:1px;background:var(--line2)}
+.status-card-head:hover .status-layer{color:var(--text)}
+.status-line{flex:1;height:1px;background:var(--line2)}
+.status-fold{
+  flex:none;width:10px;text-align:center;color:var(--dim);
+  font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1;
+}
+.status-card.collapsed .status-items,
+.status-card.collapsed .status-stale{display:none}
+.status-card.collapsed .status-card-head{margin-bottom:0}
+.status-card.collapsed{padding-top:5px;padding-bottom:5px}
 .status-card-head .st i{width:6px;height:6px;border-radius:50%;background:var(--ok)}
 .status-card-head .st.warn i{background:#eab308}
 .status-card-head .st.bad i{background:var(--err)}
@@ -278,6 +314,20 @@ white-space:nowrap;color:var(--text)}
 .mav-row .mav-payload{overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
 .mav-row .crc-ok{color:var(--ok)}
 .mav-row .crc-bad{color:var(--err)}
+
+/* ---- 帧列表右键菜单 ---- */
+.mav-menu{
+  position:fixed;z-index:30;display:flex;flex-direction:column;
+  min-width:158px;padding:2px;border:1px solid var(--line);background:#0a0a0a;
+}
+.mav-menu button{
+  appearance:none;background:transparent;border:0;border-bottom:1px solid var(--line2);
+  color:var(--muted);font:inherit;font-size:11px;letter-spacing:.03em;
+  text-align:left;padding:8px 11px;cursor:pointer;white-space:nowrap;
+}
+.mav-menu button:last-child{border-bottom:0}
+.mav-menu button:hover{color:var(--text);background:#151515}
+.mav-menu button.del:hover{color:var(--err)}
 .mav-detail{flex:none;margin-top:10px;border:1px solid var(--line);
 background:#0a0a0a;padding:10px 12px;max-height:180px;overflow:auto}
 .mav-detail-head{display:flex;gap:14px;align-items:baseline;margin-bottom:8px}

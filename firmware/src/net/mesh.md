@@ -28,6 +28,7 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 见 `mesh.h`。要点：
 - `mesh_my_id()`：本机 node_id（撞号检测要拿它排除"自己中继回来的帧"，P1-7）
 - `mesh_id_conflict_count()`：node_id 撞号计数；`mesh_drop_crc_count()` / `mesh_drop_auth_count()` 等收发统计
+- 数据帧诊断计数（F21）：`mesh_tx_data_count()` / `mesh_rx_data_count()` / `mesh_deliver_count()`，`status` 输出为「数据帧: 发=N 收=N 投递=N」
 
 ## 验收（P2）
 - 3 节点链式（A–B–C）广播，A/C 经 B 可达；同一帧 B 只转发一次（去重生效）
@@ -42,6 +43,7 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 - `g_seq` + `g_seq_mux`：发送序号 + portMUX 锁（**全系统唯一 seq 源**，见下）
 - `g_rx_cb`：收包回调（main.cpp 设，接 mav_router / frag / addr_map）
 - 统计：`g_fwd` / `g_drop_ttl` / `g_drop_dup` / `g_drop_crc` / `g_drop_auth`（P1-8）/ `g_rx` / `g_last_rx_ms`
+- 数据帧诊断计数（F21，`static volatile uint32_t`，只增不减）：`g_tx_data_count`（`mesh_send` 成功入队）/ `g_rx_data_count`（收到 `FRAME_DATA`）/ `g_deliver_count`（投递给 `g_rx_cb`）
 - 撞号检测（P0-4）：`g_my_seq_hist[32]`（本机最近发出的 seq 环，`mesh_next_seq` 内写入）+ `g_id_conflict` 计数
 - 去重表淘汰计数（P1-9）：`g_dedup_evict`
 
@@ -58,7 +60,7 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 5. PING 帧 → 回 ACK，不投递不转发，continue
 6. 数据帧且 ack_req → `mac_send_ack`
 7. 广播帧 → `route_learn(src, relay_id)` 学反向路径
-8. 投递本机（dst=0 或 dst=自己；类型 DATA/NACK/CFG）：`enc` 帧先 `crypto_open_frame` 解密；**成功**才 `g_rx_cb`（用 `rx` 副本、明文替换 payload）；**失败** `g_drop_auth++` 且只跳过投递（P1-8：原来是 `continue`，会连带吞掉转发）。解密成功后还要过 `crypto_check_replay(src_id, seq)`（P1-4 收端重放窗），不通过同样只跳过投递、转发照旧
+8. 投递本机（dst=0 或 dst=自己；类型 DATA/NACK/CFG）：`enc` 帧先 `crypto_open_frame` 解密；**成功**才 `g_rx_cb`（用 `rx` 副本、明文替换 payload，并 `g_deliver_count++`）；**失败** `g_drop_auth++` 且只跳过投递（P1-8：原来是 `continue`，会连带吞掉转发）。解密成功后还要过 `crypto_check_replay(src_id, seq)`（P1-4 收端重放窗），不通过同样只跳过投递、转发照旧
 9. 转发判定（**密文原样转发**，用原帧 `f`；转发不需要密钥）
 - 循环带 100ms 超时收帧，超时也调 `frag_tick()`（缺件 NACK 检查）
 - 任务开头 `watchdog_register_current()` 订阅任务看门狗；循环每轮 `watchdog_feed()`（**含 100ms 超时走 frag_tick 的分支**，P0-1）

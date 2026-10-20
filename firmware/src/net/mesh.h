@@ -56,6 +56,11 @@ uint32_t mesh_drop_auth_count();
 uint32_t mesh_rx_count();
 uint32_t mesh_last_rx_ms();   // 最后收帧时间 ms（失联判定用）
 
+// 数据帧收发诊断计数（只增不减）
+uint32_t mesh_tx_data_count();   // mesh_send() 成功排入发送队列的次数
+uint32_t mesh_rx_data_count();   // 收到 FRAME_DATA 的次数
+uint32_t mesh_deliver_count();   // 投递给 g_rx_cb 的次数
+
 // 撞号冲突计数（收到"自称本机 node_id"且 seq 不在本机已发序号里的陌生帧）
 uint32_t mesh_id_conflict_count();
 

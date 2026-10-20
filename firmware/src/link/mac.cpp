@@ -28,6 +28,14 @@ static volatile uint16_t g_wait_seq = 0;
 // 统计
 static uint32_t g_ack_ok = 0, g_ack_miss = 0, g_retry = 0, g_tx = 0;
 
+// 发送分项计数（F22：定位 mac_send 静默丢弃点；只增不减、无锁）
+static volatile uint32_t g_tx_call = 0;
+static volatile uint32_t g_tx_err_radio = 0;
+static volatile uint32_t g_tx_drop_rate = 0;
+static volatile uint32_t g_tx_duty_wait = 0;
+static volatile uint32_t g_tx_lbt_fail = 0;
+static volatile uint32_t g_tx_done = 0;
+
 void mac_set_params(uint32_t ack_timeout_ms, uint8_t retries) {
     g_ack_timeout_ms = ack_timeout_ms;
     g_retries = retries;
@@ -50,10 +58,12 @@ static bool mac_lbt() {
         vTaskDelay(pdMS_TO_TICKS(wait));
         watchdog_feed();             // 退避等待也喂狗（mac_send 只由 mac_task 调用）
     }
-    return false;   // 3 次仍不可用 → 硬发（控制指令不可无限憋）
+    g_tx_lbt_fail++;   // 3 次仍忙 → 硬发
+    return false;      // 3 次仍不可用 → 硬发（控制指令不可无限憋）
 }
 
 mac_result_t mac_send(const uint8_t* frame, size_t len, bool ack_req) {
+    g_tx_call++;
     if (!frame || len == 0) return MAC_TX_ERR;
 
     // 占空比限流：空中时间按当前 SF/BW/CR 精确推导（P1-2）；未就绪时按满预算记账（最保守）
@@ -63,10 +73,12 @@ mac_result_t mac_send(const uint8_t* frame, size_t len, bool ack_req) {
     // P1-10：按 QoS 的令牌桶（控制类有保底份额）。超限直接丢，绝不死等——
     // 死等会把心跳/命令排在遥测后面，还会堵住 adr_tick()
     if (!ratelimit_allow(frame_qos_of(frame), airtime)) {
+        g_tx_drop_rate++;
         return MAC_DROP_RATE;
     }
 
     while (!duty_reserve(airtime)) {
+        g_tx_duty_wait++;
         vTaskDelay(pdMS_TO_TICKS(10));
         watchdog_feed();   // 限流等待可能接近 1s，防 WDT 误触发
     }
@@ -89,7 +101,10 @@ mac_result_t mac_send(const uint8_t* frame, size_t len, bool ack_req) {
         lbt_ok = mac_lbt();
 
         int16_t st = radio_transmit(frame, len);
-        if (st != 0) return MAC_TX_ERR;
+        if (st != 0) {
+            g_tx_err_radio++;
+            return MAC_TX_ERR;
+        }
 
         if (!ack_req) break;      // 不需 ACK，发完即走
 
@@ -106,6 +121,7 @@ mac_result_t mac_send(const uint8_t* frame, size_t len, bool ack_req) {
 
         if (g_ack_arrived) {
             g_ack_ok++;
+            g_tx_done++;
             return MAC_OK;
         }
 
@@ -118,7 +134,11 @@ mac_result_t mac_send(const uint8_t* frame, size_t len, bool ack_req) {
     }
 
     if (ack_req) return MAC_ACK_TIMEOUT;
-    return lbt_ok ? MAC_OK : MAC_LBT_BUSY;
+    if (lbt_ok) {
+        g_tx_done++;
+        return MAC_OK;
+    }
+    return MAC_LBT_BUSY;
 }
 
 void mac_send_ack(uint8_t src_id, uint16_t seq) {
@@ -140,6 +160,12 @@ uint32_t mac_tx_count()   { return g_tx; }
 uint32_t mac_ack_ok()     { return g_ack_ok; }
 uint32_t mac_ack_miss()   { return g_ack_miss; }
 uint32_t mac_retries()    { return g_retry; }
+uint32_t mac_tx_call()    { return g_tx_call; }
+uint32_t mac_tx_err_radio() { return g_tx_err_radio; }
+uint32_t mac_tx_drop_rate() { return g_tx_drop_rate; }
+uint32_t mac_tx_duty_wait() { return g_tx_duty_wait; }
+uint32_t mac_tx_lbt_fail()  { return g_tx_lbt_fail; }
+uint32_t mac_tx_done()    { return g_tx_done; }
 
 // ---- mac_task：从 q_mac_tx 读待发帧，mac_send 发送 ----
 static void mac_task_func(void* arg) {
