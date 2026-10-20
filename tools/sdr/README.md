@@ -1,6 +1,6 @@
 # tools/sdr —— 空中监听 EMlink（RTL-SDR + SDR++ + GNU Radio）
 
-监听自己开发的 LoRa Mesh 数据链：**不改固件、不插飞控**，从空中把 MAVLink 消息读出来。
+监听自己开发的 LoRa Mesh 数据链：不改固件、不插飞控，从空中把 MAVLink 消息读出来。
 技术档案（参数出处、环境坑、实测记录）：`docs/references/SDR_LORA_MONITOR.md`；方案与决策：`docs/plans/SDR_LORA_MONITOR_PLAN.md`。
 
 ## 0. 这条链路长什么样
@@ -13,7 +13,9 @@
                                           → 帧头解析 + CRC16 + 分片重组 → pymavlink 打印
 ```
 
-SDR++ **不解 LoRa**（官方无 LoRa 解码器），它只负责"看得见"+ 把基带 I/Q 推出来；解码全在终端窗口。
+SDR++ 不解 LoRa（官方无 LoRa 解码器），它只负责「看得见」+ 把基带 I/Q 推出来；解码全在终端窗口。
+
+两个窗口分工：一个看有没有信号，一个看信号里是什么。
 
 ## 1. 文件清单
 
@@ -24,18 +26,22 @@ SDR++ **不解 LoRa**（官方无 LoRa 解码器），它只负责"看得见"+ �
 | `make_test_iq.py` | 用 gr-lora_sdr 发射链造一段含 Mesh 帧的 IQ（离线自测用） | 是 |
 | `lora_mesh_live.py` | 接收流图：文件或 UDP 输入 → 解调 → 解帧 → 打印 | 是 |
 
-## 2. 运行环境（**必读，否则大概率 import 失败**）
+前两个是纯解析、可单独跑；后两个依赖 GNU Radio。
+
+## 2. 运行环境（必读，否则大概率 import 失败）
 
 ```bash
 unset LD_LIBRARY_PATH
 export PYTHONPATH=/usr/lib/python3/dist-packages:/usr/local/lib/python3.12/dist-packages
 ```
 
-- **必须用 `/usr/bin/python3`**（本机默认 `python3` 可能是 miniconda 3.14，没有 gnuradio/pymavlink）。
-- `PYTHONPATH` 两条**顺序不能反**：系统路径在后会让 `/usr/local` 的 numpy 2.4.1 顶掉系统 1.26.4 → `from gnuradio import gr` 报 `initialization failed`。
+- 必须用 `/usr/bin/python3`（本机默认 `python3` 可能是 miniconda 3.14，没有 gnuradio/pymavlink）。
+- `PYTHONPATH` 两条顺序不能反：系统路径在后会让 `/usr/local` 的 numpy 2.4.1 顶掉系统 1.26.4 → `from gnuradio import gr` 报 `initialization failed`。
 - 纯解析模块（`emlink_frame.py` / `mavlink_print.py`）不需要 gnuradio，普通 `python3` 也能跑自测。
 
-## 3. 离线自测（**不需要任何 SDR 硬件**）
+环境变量这两行是这条链路最容易出错的地方，跑任何脚本前先设。
+
+## 3. 离线自测（不需要任何 SDR 硬件）
 
 ```bash
 unset LD_LIBRARY_PATH
@@ -64,7 +70,7 @@ DATA ... frag=1 ... frag=9/0/2/123
 
 ### 4.0 两个窗口怎么开（边看边解）
 
-**关键前提**：从 Hermes（或任何带 `LD_LIBRARY_PATH` 污染的环境）启动 GUI，必须在**启动器那一层**清掉它——否则 `gnome-terminal` 自己会因 libvte 报 `GLIBCXX_3.4.31 not found`，SDR++ 也可能直接崩。
+关键前提：从 Hermes（或任何带 `LD_LIBRARY_PATH` 污染的环境）启动 GUI，必须在启动器那一层清掉它 —— 否则 `gnome-terminal` 自己会因 libvte 报 `GLIBCXX_3.4.31 not found`，SDR++ 也可能直接崩。
 
 ```bash
 # 窗口 1：SDR++（独占 dongle，看频谱/瀑布）
@@ -79,17 +85,17 @@ env -u LD_LIBRARY_PATH gnome-terminal --window --title="EMlink 监听 (UDP 4242)
 ```
 
 - 纯终端里跑（不要新窗口）：`unset LD_LIBRARY_PATH; export PYTHONPATH=...`（见 §2）。
-- **GNU Radio Companion**：本机已加入口修正 `/usr/local/bin/gnuradio-companion`（同样是 numpy 冲突），菜单和终端都能直接开；撤销 `sudo rm /usr/local/bin/gnuradio-companion`。
+- GNU Radio Companion：本机已加入口修正 `/usr/local/bin/gnuradio-companion`（同样是 numpy 冲突），菜单和终端都能直接开；撤销 `sudo rm /usr/local/bin/gnuradio-companion`。
 - 确认窗口真的起来了：`wmctrl -l | grep -iE "gnu radio|EMlink"`。
 
 ### 4.1 SDR++ 配置
 
-1. **SDR++**（启动前先 `unset LD_LIBRARY_PATH`）：
+1. SDR++（启动前先 `unset LD_LIBRARY_PATH`）：
    - Source `RTL-SDR`；中心频率 = 你固件里的 freq（默认 `915.000 MHz`）；
-   - 采样率 **1.0 MS/s**；增益**手动**（不要 auto）；
-   - 瀑布时间跨度调短——一帧只有几十 ms，是细竖线；BEACON 每秒一条（`beacon_s=1`）；
-   - 开 `network_sink`：模式 **UDP**、端口 **4242**、采样率 1.0 MS/s、立体声（I/Q）。
-2. **终端**：
+   - 采样率 1.0 MS/s；增益手动（不要 auto）；
+   - 瀑布时间跨度调短 —— 一帧只有几十 ms，是细竖线；BEACON 每秒一条（`beacon_s=1`）；
+   - 开 `network_sink`：模式 UDP、端口 4242、采样率 1.0 MS/s、立体声（I/Q）。
+2. 终端：
    ```bash
    unset LD_LIBRARY_PATH
    export PYTHONPATH=/usr/lib/python3/dist-packages:/usr/local/lib/python3.12/dist-packages
@@ -109,10 +115,14 @@ env -u LD_LIBRARY_PATH gnome-terminal --window --title="EMlink 监听 (UDP 4242)
 | 头 / CRC / preamble | 显式头 / CRC 开 / 8 符号 | RadioLib 默认，固件未改 |
 | ldro | 0（SF7/BW125 符号时间 1.024 ms，不需要） | 本机计算 |
 
+这张表改动时要和 `references/SDR_LORA_MONITOR.md` §3 一起改。
+
 ## 6. 已知坑（都踩过）
 
-- **发送速率过快**：本地 UDP 回环会丢首帧（出现 `CRC valid` 失败 / `Insufficient block data` 警告）。LoRa 每帧重新同步，丢样本只影响当前帧，下一帧会重新锁定。
-- **近距饱和**：EMlink 默认 20 dBm，1 m 内会灌爆 RTL2832U（8-bit、无 AGC）→ 实验期降到 ≤0 dBm、拉远 3–5 m 或加 20–30 dB 衰减；"白墙"瀑布就是饱和。
-- **ADR 会切 SF7↔SF9**：一块 dongle 一套参数 → 实验期先关 ADR。
-- **加密**：固件默认关；一旦设了密钥，空中 payload 是密文，本工具只标注 `[密文]`，不解密。
-- **带宽改 250/500 kHz** 时要同步改采样率与 `os_factor`（500 kHz 需 ≥2 MS/s）。
+- 发送速率过快：本地 UDP 回环会丢首帧（出现 `CRC valid` 失败 / `Insufficient block data` 警告）。LoRa 每帧重新同步，丢样本只影响当前帧，下一帧会重新锁定。
+- 近距饱和：EMlink 默认 20 dBm，1 m 内会灌爆 RTL2832U（8-bit、无 AGC）→ 实验期降到 ≤0 dBm、拉远 3–5 m 或加 20–30 dB 衰减；「白墙」瀑布就是饱和。
+- ADR 会切 SF7↔SF9：一块 dongle 一套参数 → 实验期先关 ADR。
+- 加密：固件默认关；一旦设了密钥，空中 payload 是密文，本工具只标注 `[密文]`，不解密。
+- 带宽改 250/500 kHz 时要同步改采样率与 `os_factor`（500 kHz 需 ≥2 MS/s）。
+
+五个坑里饱和和采样率是必踩的两个，先在纸上把参数定好再动手。

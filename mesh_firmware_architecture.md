@@ -1,33 +1,34 @@
 # 无人机 915MHz LoRa Mesh 数传 · 最终固件架构
 
-> 硬件：ESP32-S3 SuperMini + E220-900M22S（**LLCC68** 芯片的 SPI 裸射频模块；RadioLib 用 **`SX1262` 类**驱动 —— 型号校验要求，见 `docs/references/LLCC68_E220-900M22S.md`）
+> 硬件：ESP32-S3 SuperMini + E220-900M22S（LLCC68 芯片的 SPI 裸射频模块；RadioLib 用 `SX1262` 类驱动 —— 型号校验要求，见 `docs/references/LLCC68_E220-900M22S.md`）
 > 统一硬件、统一固件，角色（AIR / GCS / RELAY）上电由 NVS + USB CLI 配置
 > 平台：PlatformIO + Arduino + FreeRTOS + RadioLib
-> 硬约束：**绝对禁止 Type-C 与 4Pin 排针同时插**（双路 5V 反灌烧板）
+> 硬约束：绝对禁止 Type-C 与 4Pin 排针同时插（双路 5V 反灌烧板）
+
 
 ---
 
 ## 0. 硬件接口与引脚定义（已打板，全篇基准）
 
-### 0.1 模块定性（已核实，非猜测）
+### 0.1 模块定性
 
 | 项 | 结论 |
 |---|---|
-| 接口 | **SPI（MISO/MOSI/SCK/NSS）+ 控制脚**，**不是 UART 透传** |
-| 核心芯片 | **LLCC68**（Semtech，SX1268 的低成本同族版）→ RadioLib 用 **`SX1262` 类**驱动（`begin()` 按"芯片自报型号"校验，见 `docs/references/LLCC68_E220-900M22S.md` §3）。**硬约束：SF 与带宽必须配对 —— BW125→SF≤9、BW250→≤10、BW500→≤11**（§2） |
-| VCC | 1.8~3.7V，本设计 3.3V（AMS1117）✓ |
+| 接口 | SPI（MISO/MOSI/SCK/NSS）+ 控制脚，不是 UART 透传 |
+| 核心芯片 | LLCC68（Semtech，SX1268 的低成本同族版）→ RadioLib 用 `SX1262` 类驱动（`begin()` 按「芯片自报型号」校验，见 `docs/references/LLCC68_E220-900M22S.md` §3）。硬约束：SF 与带宽必须配对 —— BW125→SF≤9、BW250→≤10、BW500→≤11（§2） |
+| VCC | 1.8~3.7V，本设计 3.3V（AMS1117） |
 | 时钟 | 无 TCXO，晶振版（RadioLib 用默认 XTAL 配置）。已确认可接受：SF7/BW125 对频偏极宽容（容差约 ±25% 带宽 ≈ ±31kHz），视距 + 中继有充足链路余量，无需用 TCXO 换极端灵敏度 |
-| 射频开关 | 外部开关，**RXEN / TXEN 控制，active-high** |
-| DIO2 | **悬空 = 正确用法**（不用时必须悬空；且 DIO2 只能接 TXEN，不可接 MCU IO 当开关） |
+| 射频开关 | 外部开关，RXEN / TXEN 控制，active-high |
+| DIO2 | 悬空 = 正确用法（不用时必须悬空；且 DIO2 只能接 TXEN，不可接 MCU IO 当开关） |
 | DIO3 | 本封装未引出，无需连接 |
 
-### 0.2 引脚表（以打板原理图为准，固定不变）
+### 0.2 引脚表
 
 | 射频信号 | E220 脚 | ESP32-S3 GPIO | 方向（对 MCU） | 用途 / 代码 |
 |---|---|---|---|---|
 | RXEN | 6 | GPIO1 | 输出 | 收使能，active-high，接 `setRfSwitchPins` |
 | TXEN | 7 | GPIO2 | 输出 | 发使能，active-high |
-| DIO2 | 8 | — | 悬空 | 不接 ✓ |
+| DIO2 | 8 | — | 悬空 | 不接 |
 | VCC | 9 | 3.3V(AMS1117) | 电源 | 就近加 10µF+100nF 去耦 |
 | DIO1 | 13 | GPIO7 | 输入(IRQ) | 收发完成中断 |
 | BUSY | 14 | GPIO13 | 输入 | 忙检测 |
@@ -51,31 +52,32 @@ radio.setRfSwitchPins(PIN_LORA_RXEN, PIN_LORA_TXEN);   // 用 RXEN/TXEN 切收�
 radio.begin(freq, bw, sf, cr, syncWord, pwr);
 ```
 
-### 0.4 引脚核对结论（E220 该连的已全部连齐 ✓）
+### 0.4 引脚核对结论
 
 | E220 脚 | 信号 | S3 GPIO | 状态 |
 |---|---|---|---|
-| 1–5,10–12,20,22 | GND | GND | ✓ 共地 |
-| 9 | VCC | 3.3V | ✓（上限 3.7V，禁接 5V） |
-| 16/17/18/19 | MISO/MOSI/SCK/NSS | 11/10/9/8 | ✓ SPI 全连 |
-| 13 | DIO1 | GPIO7 | ✓ 中断 |
-| 14 | BUSY | GPIO13 | ✓ 忙检测 |
-| 15 | NRST | GPIO12 | ✓ 复位 |
-| 6/7 | RXEN/TXEN | GPIO1/2 | ✓ 射频开关 |
-| 8 | DIO2 | 悬空 | ✓（正确） |
-| 21 | ANT | 天线 | ✓ |
+| 1–5,10–12,20,22 | GND | GND | 共地 |
+| 9 | VCC | 3.3V | （上限 3.7V，禁接 5V） |
+| 16/17/18/19 | MISO/MOSI/SCK/NSS | 11/10/9/8 | SPI 全连 |
+| 13 | DIO1 | GPIO7 | 中断 |
+| 14 | BUSY | GPIO13 | 忙检测 |
+| 15 | NRST | GPIO12 | 复位 |
+| 6/7 | RXEN/TXEN | GPIO1/2 | 射频开关 |
+| 8 | DIO2 | 悬空 | （正确） |
+| 21 | ANT | 天线 | |
 
 - **TX→RX / RX→TX 已澄清**：这是 S3 的 UART0（GPIO43/44），接飞控（Pixhawk），与 E220 无关。
 - **GP13 = BUSY 占用 FSPI 默认 MISO**：故 SPI 走 GPIO 矩阵重映射（NSS=8/SCK=9/MOSI=10/MISO=11），已固化在 `pinmap.h`。
 - **RXEN/TXEN 电平**：active-high，RadioLib `setRfSwitchPins` 默认匹配；P0 若方向反，量电平回填。
 - **供电**：22dBm 峰值 ~119mA + ESP32 瞬态，AMS1117 就近 10µF+100nF 去耦。
 
+
 ---
 
 ## 1. 系统全景
 
 ```
-飞控(Pixhawk) ──UART── [AIR 节点] ┄┄LoRa Mesh┄┄ [GCS 节点] ──USB── QGC
+飞控(Pixhawk) ──UART── [AIR 节点] ┄┄LoRa Mesh┄┄ [GCS 节点] ──USB── 地面站
                         ↑ 中间可有其它 AIR 节点接力（2+n / n 终端）
 ```
 
@@ -83,6 +85,7 @@ radio.begin(freq, bw, sf, cr, syncWord, pwr);
 - **AIR**：接飞控 UART，MAVLink ↔ LoRa 双向翻译。
 - **GCS**：接电脑 USB(CDC)，MAVLink ↔ LoRa 双向翻译。
 - **RELAY**：纯 Mesh 中继，无 MAVLink 业务，只转发。
+
 
 ---
 
@@ -98,9 +101,9 @@ radio.begin(freq, bw, sf, cr, syncWord, pwr);
 
 | 层 | 模块 | 职责 | 核 |
 |---|---|---|---|
-| 驱动 | `radio` | 射频抽象接口：收发、CAD 侦听（LLCC68 **支持** CAD）、RSSI/SNR、复位（按宏实现）。**芯片 = E220-900M22S = LLCC68**，两条硬约束：①SF 与带宽必须配对（**BW125 最高 SF9**）②RadioLib 驱动类要匹配芯片自报型号（E220 自报 "SX1261" → 用 `SX1262` 类）。详见 `docs/references/LLCC68_E220-900M22S.md` | 0 |
+| 驱动 | `radio` | 射频抽象接口：收发、CAD 侦听（LLCC68 支持 CAD）、RSSI/SNR、复位（按宏实现）。芯片 = E220-900M22S = LLCC68，两条硬约束：①SF 与带宽必须配对（BW125 最高 SF9）②RadioLib 驱动类要匹配芯片自报型号（E220 自报 "SX1261" → 用 `SX1262` 类）。详见 `docs/references/LLCC68_E220-900M22S.md` | 0 |
 | 驱动 | `uart_fc` | 与飞控的 UART（DMA 环形缓冲） | 1 |
-| 驱动 | `usb_cdc` | **单口分流**：一个 USB 虚拟串口同时跑 MAVLink 与 CLI（`0xFD/0xFE` 按帧收，其余当文本；P1-6） | 1 |
+| 驱动 | `usb_cdc` | 单口分流：一个 USB 虚拟串口同时跑 MAVLink 与 CLI（`0xFD/0xFE` 按帧收，其余当文本；P1-6） | 1 |
 | 驱动 | `power_detect` | USB 插入/拔除检测、电源状态机输入 | 1 |
 | 链路 | `frame_codec` | 组帧/拆帧、CRC、序号管理 | 0 |
 | 链路 | `mac` | LBT（CAD）、ACK 超时重传、退避 | 0 |
@@ -117,6 +120,7 @@ radio.begin(freq, bw, sf, cr, syncWord, pwr);
 | 服务 | `ota` | OTA 固件升级 + WiFi Web 管理（§13.2 已实现） | 1 |
 | 应用 | `role`/`cli`/`stats`/`failsafe_policy` | 角色逻辑/命令行/统计/故障安全策略 | 1 |
 
+
 ---
 
 ## 3. FreeRTOS 任务、核、优先级、队列、事件
@@ -125,7 +129,7 @@ radio.begin(freq, bw, sf, cr, syncWord, pwr);
 
 | 任务 | 核 | 优先级 | 职责 |
 |---|---|---|---|
-| `rf_task` | 0 | 22 | **射频单所有者**（P0-2）：服务射频请求队列（hi/lo，执行芯片操作并回结果）+ DIO1 中断→读包→投 `q_rf_rx` |
+| `rf_task` | 0 | 22 | 射频单所有者（P0-2）：服务射频请求队列（hi/lo，执行芯片操作并回结果）+ DIO1 中断→读包→投 `q_rf_rx` |
 | `mac_task` | 0 | 20 | 发信排队、LBT、ACK 超时重传、退避 |
 | `mesh_task` | 0 | 18 | 转发判定、去重、TTL 减一、回投 `q_mac_tx` |
 | `mavlink_task` | 1 | 12 | MAVLink 解析、按 sysid 分发、心跳优先、分片触发 |
@@ -136,11 +140,11 @@ radio.begin(freq, bw, sf, cr, syncWord, pwr);
 | `ota_task` | 1 | 6 | WiFi Web 管理（CLI `wifi` 触发后创建，退出即删） |
 
 > 核0 = 射频/信道/组网（时间敏感，独占不被打断）；核1 = 交互与协议（节奏慢）。
-> **看门狗订阅**（P0-1 修正）：`rf/mac/mesh/mavlink/stats` 五个任务各自 `watchdog_register_current()` 订阅 + 循环内 `watchdog_feed()`（5s 不喂 → panic 复位）；**loopTask 不订阅**（Arduino 的 loopTask 只有 `enableLoopWDT()` 后才喂狗，曾导致上板 5s 重启循环）。
-> **核心绑定**：LoRa 射频 + WiFi 栈都占 core0；OTA 维护模式二者**二选一**（`radio_suspend`/`resume`，§13.2），不进维护模式时不并存。
-> **任务函数归属**：任务函数是各模块 `.cpp` 内 `static` 实现，由模块的 `xxx_start()` 创建（仿 PX4 模块自包含），`main.cpp` 的 `setup()` 按角色依次调用。`ota_task` 例外——按需动态创建/删除。
+> 看门狗订阅（P0-1 修正）：`rf/mac/mesh/mavlink/stats` 五个任务各自 `watchdog_register_current()` 订阅 + 循环内 `watchdog_feed()`（5s 不喂 → panic 复位）；loopTask 不订阅（Arduino 的 loopTask 只有 `enableLoopWDT()` 后才喂狗，曾导致上板 5s 重启循环）。
+> 核心绑定：LoRa 射频 + WiFi 栈都占 core0；OTA 维护模式二者二选一（`radio_suspend`/`resume`，§13.2），不进维护模式时不并存。
+> 任务函数归属：任务函数是各模块 `.cpp` 内 `static` 实现，由模块的 `xxx_start()` 创建（仿 PX4 模块自包含），`main.cpp` 的 `setup()` 按角色依次调用。`ota_task` 例外——按需动态创建/删除。
 
-### 3.2 队列（解耦，任务间不直接抢数据）
+### 3.2 队列
 
 | 队列 | 方向 | 内容 |
 |---|---|---|
@@ -165,10 +169,10 @@ radio.begin(freq, bw, sf, cr, syncWord, pwr);
 | `EV_RF_FAULT` | radio(连续无响应) | watchdog |
 | `EV_CFG_CHANGED` | cli_task(save) | main.cpp 的 `loop()` 轮询 → 重载 `g_cfg` 内存镜像 + 提示「射频/角色类参数需 reset」（P1-12 接线） |
 
-> 以上任务/队列/事件的句柄、优先级、事件位宏统一定义在 `firmware/src/rtos.h`（唯一真相源），各模块 `#include "rtos.h"` 引用，不重复创建。
-> **队列所有权**：队列只由 `rtos_comms_init()` 统一创建（幂等，必须最先调用），任何模块 `start` 内禁止再建；句柄注释标注「生产方 → 消费方」。
+> 以上任务/队列/事件的句柄、优先级、事件位宏统一定义在 `firmware/src/rtos.h`（唯一真相源），各模块 `#include 「rtos.h」` 引用，不重复创建。
+> 队列所有权：队列只由 `rtos_comms_init()` 统一创建（幂等，必须最先调用），任何模块 `start` 内禁止再建；句柄注释标注「生产方 → 消费方」。
 
-### 3.4 启动依赖顺序（下游先就位，上游后跑，防开机首包丢）
+### 3.4 启动依赖顺序
 
 ```
 rtos_comms_init()          # 建队列/事件组（最先，幂等）
@@ -185,32 +189,33 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 ```
 （`crypto_init` 在 nvs_cfg_load 之后、组网之前调；`ota` 无固定启动，CLI `wifi` 触发）
 
-> **栈大小**：先启用 `configCHECK_FOR_STACK_OVERFLOW` 跑一轮，按实测栈使用反推各任务栈大小，再回填 §3.1 的栈值。
+> 栈大小：先启用 `configCHECK_FOR_STACK_OVERFLOW` 跑一轮，按实测栈使用反推各任务栈大小，再回填 §3.1 的栈值。
 
-### 3.5 跨核共享状态与锁（并发安全约定，写代码前必读）
+### 3.5 跨核共享状态与锁
 
 双核（core0 射频/组网，core1 交互/协议）会并发访问模块 static 状态。约定：
 
 | 共享状态 | 访问者（核） | 保护方式 |
 |---|---|---|
-| `mesh` 的 `g_seq`（帧序号） | core0 转发/beacon + core1 发送 | **`mesh_next_seq()` + portMUX**（全系统唯一 seq 源，分片帧也用它，禁止各模块自建 seq 计数器） |
+| `mesh` 的 `g_seq`（帧序号） | core0 转发/beacon + core1 发送 | `mesh_next_seq()` + portMUX（全系统唯一 seq 源，分片帧也用它，禁止各模块自建 seq 计数器） |
 | `route` 的 `g_paths`（反向路径表） | core0 学习 + core0/1 查下一跳 | portMUX |
 | `addr_map` 的 `g_map`（sysid↔node） | core0 学习 + core1 导出 | portMUX |
 | `crypto` 的 `g_key`（密钥） | core0 加解密 + core1 设密钥 | portMUX（锁只护 16B 拷贝，不护整个加解密） |
 | `mav_router` 的 `g_tx_cache`（分片缓存） | core1 缓存 + core0 NACK 补发 | FreeRTOS mutex |
-| `mav_router` 的 `g_rx_uart/g_rx_usb`（接收状态机） | **各自独立，禁止共用**（三源共用一个字节流缓冲会跨核串包） | 无锁（单核独占） |
-| `ota` 的 `g_server` | core1 | 由 ota_task 唯一持有/删除；ota_stop 只置标志，**禁止在回调里 vTaskDelete 自己** |
+| `mav_router` 的 `g_rx_uart/g_rx_usb`（接收状态机） | 各自独立，禁止共用（三源共用一个字节流缓冲会跨核串包） | 无锁（单核独占） |
+| `ota` 的 `g_server` | core1 | 由 ota_task 唯一持有/删除；ota_stop 只置标志，禁止在回调里 vTaskDelete 自己 |
 | `adr` 的 `g_sf/g_epoch_ms/...` | core0 mac_task 写 + mesh_task 写 + core1 读 | `volatile` |
 | `frag` 的 `g_reasm` | core0 mesh_task（reassemble + tick） | 无锁（单核单任务） |
 | `frag` 的 `g_frag_seq` | core1 mavlink_task（split） | 无锁（单核） |
-| `radio`（芯片 + SPI + `g_suspended`/`g_radio_ready`） | **所有模块都"用"它** | **射频单所有者（P0-2）：芯片操作只准在 `rf_task` 上下文执行**；其它任务走 `radio_*` 接口（内部 = 请求队列 `q_radio_hi/lo` + 任务通知取结果），**禁止直接碰 RadioLib/SPI** |
+| `radio`（芯片 + SPI + `g_suspended`/`g_radio_ready`） | 所有模块都「用」它 | 射频单所有者（P0-2）：芯片操作只准在 `rf_task` 上下文执行；其它任务走 `radio_*` 接口（内部 = 请求队列 `q_radio_hi/lo` + 任务通知取结果），禁止直接碰 RadioLib/SPI |
 
-**铁律**：
-1. **seq 只有一个源**：`mesh_next_seq()`。任何模块发帧都从它取 seq，禁止再建 `g_xxx_seq` 计数器（多计数器会导致同一节点 seq 重叠 → 去重误判丢帧）。
-2. **字节流状态机一源一套**：uart/usb 各自独立 `rx_state_t`；mesh 帧 payload 是完整消息，直接 route_msg 不走状态机。
-3. **任务不能删自己**：`vTaskDelete` 只删别的任务；删自己用「置标志 + 任务循环退出 + 尾部 `vTaskDelete(nullptr)`」模式。
-4. 统计计数器（tx/rx/ack 等）跨核读是"近似值"，接受陈旧读，不强加锁。
-5. **射频单所有者**（P0-2）：任何 SPI/芯片操作只准在 `rf_task` 里执行（`radio_*` 接口已封装为请求队列）；**调用 `radio_*` 的任务不得把"任务通知"用于其它用途**（通知被用作请求完成信号）；`rf_task` 自身（含周期重试、射频自救）走"所有者直接执行"路径，不会自投自收死锁。
+铁律：
+1. seq 只有一个源：`mesh_next_seq()`。任何模块发帧都从它取 seq，禁止再建 `g_xxx_seq` 计数器（多计数器会导致同一节点 seq 重叠 → 去重误判丢帧）。
+2. 字节流状态机一源一套：uart/usb 各自独立 `rx_state_t`；mesh 帧 payload 是完整消息，直接 route_msg 不走状态机。
+3. 任务不能删自己：`vTaskDelete` 只删别的任务；删自己用「置标志 + 任务循环退出 + 尾部 `vTaskDelete(nullptr)`」模式。
+4. 统计计数器（tx/rx/ack 等）跨核读是「近似值」，接受陈旧读，不强加锁。
+5. 射频单所有者（P0-2）：任何 SPI/芯片操作只准在 `rf_task` 里执行（`radio_*` 接口已封装为请求队列）；**调用 `radio_*` 的任务不得把「任务通知」用于其它用途**（通知被用作请求完成信号）；`rf_task` 自身（含周期重试、射频自救）走「所有者直接执行」路径，不会自投自收死锁。
+
 
 ---
 
@@ -228,29 +233,29 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 | 6 | `ttl` | 1 | 剩余跳数，转发减一，0 丢弃 |
 | 7 | `relay_id` | 1 | 反向路径：广播帧=上一跳转发者 node_id；单播帧=下一跳 node_id；源发=0（§4.5） |
 | 8 | `orig_sysid` | 1 | 源 MAVLink sysid（发送者，供 addr_map 学习/分片重组键） |
-| 9 | `net_id` | 1 | 网络 ID（多网共存，0=默认网；**当前仅透传不校验**） |
+| 9 | `net_id` | 1 | 网络 ID（多网共存，0=默认网；当前仅透传不校验） |
 | 10 | `enc_epoch` | 1 | 开机世代号（AES-CCM nonce 用，防跨重启复用；未加密帧=0）（P1-4） |
 | 11–14 | `frag_hdr` | 4 | 分片头（§6），非分片帧填 0 |
 | 15–193 | `payload` | ≤179 | MAVLink 消息或分片数据 |
 | 194–195 | `crc16` | 2 | 帧级 CRC16（端到端完整性，可选但建议开） |
 
 > `proto`（flags[3:2]）payload 协议类型：0=MAVLink、1=CRSF、2=MSP、3=自定义。
-> `net_id` 默认 0；非 0 时**计划**只收同网帧（多网共存），当前尚未实现过滤。
-> 帧头 14→15 字节是 **P1-4 的不兼容变更**（新增 `enc_epoch`），两端固件必须同版本。
+> `net_id` 默认 0；非 0 时计划只收同网帧（多网共存），当前尚未实现过滤。
+> 帧头 14→15 字节是 P1-4 的不兼容变更（新增 `enc_epoch`），两端固件必须同版本。
 
 > 空中由 LoRa 硬件 CRC（CR=4/5）逐跳保护；帧级 CRC16 用于 mesh 逐跳重编码后的端到端校验。
 
-### 4.2 地址方案（两套体系，各管各的）
+### 4.2 地址方案
 
 - **node_id（节点地址）**：无线网内部节点号 1–254，唯一，存 NVS。
-- **sysid（系统标识）**：MAVLink 业务号，飞控=1、地面站=255，多机多系统标识。**取值优先级（P1-7）**：NVS `sysid` > 角色默认（AIR=1 / GCS=255 / RELAY=0）；同场两机配同号 → 持续计数 `sysid撞号`（CLI status），供现场发现配置错误。
+- **sysid（系统标识）**：MAVLink 业务号，飞控=1、地面站=255，多机多系统标识。取值优先级（P1-7）：NVS `sysid` > 角色默认（AIR=1 / GCS=255 / RELAY=0）；同场两机配同号 → 持续计数 `sysid撞号`（CLI status），供现场发现配置错误。
 - 二者通过 `addr_map` 关联（§7），互不污染。
 
 ### 4.3 去重
 
 - 键 = `(src_id, seq)`。
 - 每源一个 256 槽滑动窗口（bitmap + 上次序号），序号回绕处理。
-- 命中即**丢弃，不处理不转发**。
+- 命中即丢弃，不处理不转发。
 - 槽位 30s 未更新自动作废。
 
 ### 4.4 TTL
@@ -259,21 +264,23 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 
 ### 4.5 路由（三级）
 
-1. **泛洪（默认）**：广播帧人人转发一次，简单可靠、抗节点移动，小网最优。
-2. **反向路径**：帧头 `relay_id`（偏移 7）记录转发路径——广播帧里填「上一跳转发者」，节点据此学 `src_id ← 上一跳`；单播回信时填「下一跳」，中继只认 `relay_id==自己` 的帧转发，省一半空口。无路径记录时回退广播。
-3. **路由表（预留，未启用）**：帧类型 5 已留位，节点数 >8 再上。
+1. 泛洪（默认）：广播帧人人转发一次，简单可靠、抗节点移动，小网最优。
+2. 反向路径：帧头 `relay_id`（偏移 7）记录转发路径——广播帧里填「上一跳转发者」，节点据此学 `src_id ← 上一跳`；单播回信时填「下一跳」，中继只认 `relay_id==自己` 的帧转发，省一半空口。无路径记录时回退广播。
+3. 路由表（预留，未启用）：帧类型 5 已留位，节点数 >8 再上。
+
 
 ---
 
 ## 5. MAC 与信道接入
 
-- **LBT（先听后说）**：发前 CAD 侦听（P0-3 修正：状态驱动轮询直到 `CAD_DONE`/`CAD_DETECTED`，超时按 SF/BW 推导）；忙 → 随机退避 5–20ms 重试，最多 3 次；3 次仍忙 → **硬发**（控制指令不可无限憋）。
+- **LBT（先听后说）**：发前 CAD 侦听（P0-3 修正：状态驱动轮询直到 `CAD_DONE`/`CAD_DETECTED`，超时按 SF/BW 推导）；忙 → 随机退避 5–20ms 重试，最多 3 次；3 次仍忙 → 硬发（控制指令不可无限憋）。
 - **半双工**：RXEN/TXEN 切收发，发完立刻切回收听。
-- **ACK/重传**：`ack_req=1` 的帧，收方回 ACK；发方超时未收到→重发，最多 3 次，退避 100→300→700ms。**ACK 超时随 SF 自适应**（P1-2）：`max(NVS 值 300ms, ACK 帧(16B) 空中时间 + 50ms)` —— SF7≈300ms、SF9≈300ms（16B@SF9 约 165ms，不触发下限）；若将来用 SF10 则要 380ms（ACK 帧自身 330ms，写死 300ms 必然误判超时）。
+- **ACK/重传**：`ack_req=1` 的帧，收方回 ACK；发方超时未收到→重发，最多 3 次，退避 100→300→700ms。ACK 超时随 SF 自适应（P1-2）：`max(NVS 值 300ms, ACK 帧(17B) 空中时间 + 50ms)` —— SF7≈300ms、SF9≈300ms（17B@SF9 约 165ms，不触发下限）；若将来用 SF10 则要 380ms（ACK 帧自身 330ms，写死 300ms 必然误判超时）。
 - **BEACON**：GCS 每 5s 广播一次（由 adr 模块管，固定 SF9 锚点），节点据此对齐速率表 + 评估邻居链路质量（RSSI/SNR）。
-- **协议版本宣告（T-2，`service/version`）**：BEACON 的 payload 带 **1 字节 `EM_PROTO_VERSION`**；收端比对不一致 → 计数 + 串口告警 + CLI `status` 的「协议」行显示（**只告警不拒绝**，仍照常收发——还要能互相看见，便于现场判断该刷哪一台）。**只能拦"未来"的不一致**（v2↔v3）：v1↔v2 那次 14→15 字节帧头变化，旧固件连帧都解不出、走不到"读 payload 版本号"这一步。**帧格式/封装语义每变一次，`EM_PROTO_VERSION` 必须 +1**。固件版本 `EM_FW_VERSION` 手工维护（自动从 git 生成记在 `ROADMAP.md`）；`ver` 命令查看。
-- **占空比**：每节点每秒空中发射时间上限 10%（100ms/s），超限排队稍等——守法规、让空口。空中时间按 Semtech 公式精确算（`drivers/airtime`，P1-2），**200B@BW125/CR4/5：SF7 = 318ms、SF9 ≈ 923ms**；单帧就超 100ms 预算时放行并计数（否则会死等），计数可在 CLI `status` 看到。
-- **流量整形（P1-10，`service/ratelimit`）**：发送前先过**按 QoS 的令牌桶**——控制类(QOS2)有保底份额（10% 空口时间），用户类(QOS0/1)拿剩余 90%；计价同样是空中毫秒。**超限直接丢**（`MAC_DROP_RATE`），绝不死等：`mac_send` 与 `adr_tick()` 同任务，死等会把 ADR 时间表一起拖歪。层序：**准入整形（ratelimit）→ 占空比硬上限（duty）→ LBT → 发送**。
+- **协议版本宣告（T-2，`service/version`）**：BEACON 的 payload 带 1 字节 `EM_PROTO_VERSION`；收端比对不一致 → 计数 + 串口告警 + CLI `status` 的「协议」行显示（只告警不拒绝，仍照常收发——还要能互相看见，便于现场判断该刷哪一台）。只能拦「未来」的不一致（v2↔v3）：v1↔v2 那次 14→15 字节帧头变化，旧固件连帧都解不出、走不到「读 payload 版本号」这一步。帧格式/封装语义每变一次，`EM_PROTO_VERSION` 必须 +1。固件版本 `EM_FW_VERSION` 手工维护（自动从 git 生成记在 `ROADMAP.md`）；`ver` 命令查看。
+- **占空比**：每节点每秒空中发射时间上限 10%（100ms/s），超限排队稍等——守法规、让空口。空中时间按 Semtech 公式精确算（`drivers/airtime`，P1-2），200B@BW125/CR4/5：SF7 = 318ms、SF9 ≈ 923ms；单帧就超 100ms 预算时放行并计数（否则会死等），计数可在 CLI `status` 看到。
+- **流量整形（P1-10，`service/ratelimit`）**：发送前先过按 QoS 的令牌桶——控制类(QOS2)有保底份额（10% 空口时间），用户类(QOS0/1)拿剩余 90%；计价同样是空中毫秒。超限直接丢（`MAC_DROP_RATE`），绝不死等：`mac_send` 与 `adr_tick()` 同任务，死等会把 ADR 时间表一起拖歪。层序：准入整形（ratelimit）→ 占空比硬上限（duty）→ LBT → 发送。
+
 
 ---
 
@@ -282,21 +289,23 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 - MAVLink 2 最大帧 267B（无签名），单帧明文 payload 上限 175B（加密后 +4B tag = 179），超长消息拆片。
 - **分片头（4B）**：`msg_id(1) + frag_index(1) + frag_total(1) + frag_seq(1)`。
 - 重组键 = `(src_id, orig_sysid, frag_seq)`（P1-9：漏 `src_id` 会让同 sysid 的两机串包）；2s 未拼齐→整组作废，计 `reasm_timeout`。
-- 缺件：收方回 NACK（`frag_index` 缺失位图），发方**只补缺件**，不重发全部。
-- 遥测/心跳/单航点项（≤38B）**不分片**，只有大消息才触发。
+- 缺件：收方回 NACK（`frag_index` 缺失位图），发方只补缺件，不重发全部。
+- 遥测/心跳/单航点项（≤38B）不分片，只有大消息才触发。
+
 
 ---
 
 ## 7. 多 AIR / GCS 与 sysid 路由
 
 - **GCS→多机**：GCS 广播，各 AIR 节点看 MAVLink 消息 payload 里的 `target_sysid`，匹配自己飞控才送上 UART，否则丢弃。
-- **AIR→GCS**：反向路径单播回 GCS；GCS 合并各机数据上 USB，QGC 靠 sysid 自行区分。
+- **AIR→GCS**：反向路径单播回 GCS；GCS 合并各机数据上 USB，地面站 靠 sysid 自行区分。
 - **addr_map**：从 HEARTBEAT 学习 `sysid ↔ node_id`，兼作地面站链路质量显示来源。
 - **多 GCS**：各自监听，控制权交飞控/上位机仲裁（MAVLink 自带），固件只透明搬运。
 
+
 ---
 
-## 8. QoS 与故障安全（安全优先）
+## 8. QoS 与故障安全
 
 ### 8.1 QoS 三级
 
@@ -306,15 +315,15 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 | QOS1 | ACK + 重传×3 | 命令、参数读写、单航点 |
 | QOS2 | 逐件确认 + 缺件补发 | 整段航点上传、关键控制 |
 
-排队优先级：**控制 > 参数/航点 > 遥测**。
+排队优先级：控制 > 参数/航点 > 遥测。
 
-### 8.2 故障安全（固件绝不越权替飞控做决定）
+### 8.2 故障安全
 
-1. **心跳优先中转**：GCS HEARTBEAT 进 `q_mac_tx` 最高优先级，绝不在本节点滞留。返航判定是**飞控自己**数心跳超时，固件只保证心跳不误时。
-2. **链路看门狗**：AIR 侧 3s 无上行→`EV_LINK_LOST`，告警、停止无效转发，等飞控超时接管。
-3. **射频卡死自救**：连续 N 次无响应→软复位射频芯片（NRST），再不行重启整机；计 `rf_reinit`。
-4. **任务看门狗**（P0-1 修正）：`rf/mac/mesh/mavlink/stats` 各任务自行订阅（`watchdog_register_current()`）+ 循环内喂狗，5s 超时 → panic 复位；IDF 中断看门狗（INT_WDT）常开，兜底 ISR 长时间占用。（原文"双看门狗：任务级 SW WDT + HW WDT（RTC）"的 HW 部分未实现，已按实况修正。）
-5. **禁止双供电（硬约束）**——供电电路（已定案）与电源/接口状态机：
+1. 心跳优先中转：GCS HEARTBEAT 进 `q_mac_tx` 最高优先级，绝不在本节点滞留。返航判定是飞控自己数心跳超时，固件只保证心跳不误时。
+2. 链路看门狗：AIR 侧 3s 无上行→`EV_LINK_LOST`，告警、停止无效转发，等飞控超时接管。
+3. 射频卡死自救：连续 N 次无响应→软复位射频芯片（NRST），再不行重启整机；计 `rf_reinit`。
+4. 任务看门狗（P0-1 修正）：`rf/mac/mesh/mavlink/stats` 各任务自行订阅（`watchdog_register_current()`）+ 循环内喂狗，5s 超时 → panic 复位；IDF 中断看门狗（INT_WDT）常开，兜底 ISR 长时间占用。（原文「双看门狗：任务级 SW WDT + HW WDT（RTC）」的 HW 部分未实现，已按实况修正。）
+5. 禁止双供电（硬约束）——供电电路（已定案）与电源/接口状态机：
 
    供电电路：
    ```
@@ -324,7 +333,7 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
    ```
    硬件防护：SS34（4Pin 侧防倒灌）+ PTC 0.5A（AMS1117 前防过流）。C 口侧不能串二极管（会挡住 4Pin 反向供电，S3 吃不到电）。剩余靠「禁双插约定 + 固件状态机」兜底。
 
-   状态机判据：**「角色 + USB 是否枚举」**，不测 5V 电压（C 口/4Pin 供电时 5V 引脚都有电，测不出来源）。USB 枚举 = 与主机握手成功 = USB 数据通路可用。
+   状态机判据：「角色 + USB 是否枚举」，不测 5V 电压（C 口/4Pin 供电时 5V 引脚都有电，测不出来源）。USB 枚举 = 与主机握手成功 = USB 数据通路可用。
 
    ```
    上电读 role ──┬─ 未设/配置模式 ──→ 态A「仅USB配置」：USB=CLI，射频停
@@ -333,6 +342,7 @@ rtos_comms_init()          # 建队列/事件组（最先，幂等）
 
    飞行中(B态) 若 USB 枚举(插上电脑) → 只弹 CLI，绝不切换数据通路（防数据流被 USB 抢走）
    ```
+
 
 ---
 
@@ -369,6 +379,7 @@ scan                    ping <node_id>     cfg <键> <值>
 mavlink monitor on      （旁路观察 MAVLink，预留）
 ```
 
+
 ---
 
 ## 10. 调试与统计
@@ -387,8 +398,9 @@ mavlink monitor on      （旁路观察 MAVLink，预留）
 ### 10.2 日志与状态
 
 - 四级：`ERR/WARN/INFO/DBG`，按需开关。
-- 日志出口：**走 USB 或专用串口，绝不占飞控 UART**。
+- 日志出口：走 USB 或专用串口，绝不占飞控 UART。
 - LED 状态：WS2818 RGB@GPIO48，颜色=身份（角色）、节奏=健康（链路），完整映射表见 `firmware/src/app/led_states.md`。
+
 
 ---
 
@@ -396,27 +408,29 @@ mavlink monitor on      （旁路观察 MAVLink，预留）
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| **P0 点亮** | pinmap.h 核对、USB、NVS、角色检测、SPI 射频、UART 全通，两板对发对收 | 10m 内互发互收，RSSI 入日志 |
-| **P1 链路层** | 帧编解码、ACK/重传、LBT | 2 节点 500m 视距 **0 丢包** |
-| **P2 组网** | 泛洪、去重、TTL、反向路径 | 3 节点端到端送达、无死循环、包数对得上 |
-| **P3 业务** | MAVLink 翻译、分片、sysid 路由、心跳中转 | 同时看到 2 机；能读参数/传航点/收遥测 |
-| **P4 安全** | QoS 优先级、看门狗、断链行为 | 掐上行→飞控 3s 内进返航；恢复→自动重连 |
-| **P5 外场** | CLI 完善、500m/120m 实测、抗干扰 | 见下方三硬指标 |
+| P0 点亮 | pinmap.h 核对、USB、NVS、角色检测、SPI 射频、UART 全通，两板对发对收 | 10m 内互发互收，RSSI 入日志 |
+| P1 链路层 | 帧编解码、ACK/重传、LBT | 2 节点 500m 视距 0 丢包 |
+| P2 组网 | 泛洪、去重、TTL、反向路径 | 3 节点端到端送达、无死循环、包数对得上 |
+| P3 业务 | MAVLink 翻译、分片、sysid 路由、心跳中转 | 同时看到 2 机；能读参数/传航点/收遥测 |
+| P4 安全 | QoS 优先级、看门狗、断链行为 | 掐上行→飞控 3s 内进返航；恢复→自动重连 |
+| P5 外场 | CLI 完善、500m/120m 实测、抗干扰 | 见下方三硬指标 |
 
-**最终验收三硬指标**：
-1. 500m 视距投递率 **≥99%**（SF7）；
-2. 地面站↔飞机控制指令单程 **<1s**（含重传）；
-3. 断链到飞控触发返航 **<3s**。
+最终验收三硬指标：
+1. 500m 视距投递率 ≥99%（SF7）；
+2. 地面站↔飞机控制指令单程 <1s（含重传）；
+3. 断链到飞控触发返航 <3s。
+
 
 ---
 
 ## 12. 风险清单
 
-1. **频段合规**：中国 LoRa 主流 470–510MHz，915MHz 属 ISM 但需核当地频谱政策；默认功率 20dBm 留余量。
-2. **内存**：去重表（16 源 × 32B 位图）+ 重组缓冲（4 并发 × 267B）预估仅几 KB，SRAM 即够，PSRAM 作额外余量；4MB Flash 足够。
-3. **同频多机**：LBT 只缓解不根除，>8 节点再考虑跳频。
-4. **原理图红灯**：§0.4 的 UART/SPI 疑点、GP13/BUSY 冲突、RXEN/TXEN 电平，P0 第一件事核对。
-5. **双供电反灌**：固件状态机 + 板级防反灌，两手都要。
+1. 频段合规：中国 LoRa 主流 470–510MHz，915MHz 属 ISM 但需核当地频谱政策；默认功率 20dBm 留余量。
+2. 内存：去重表（16 源 × 32B 位图）+ 重组缓冲（4 并发 × 267B）预估仅几 KB，SRAM 即够，PSRAM 作额外余量；4MB Flash 足够。
+3. 同频多机：LBT 只缓解不根除，>8 节点再考虑跳频。
+4. 原理图红灯：§0.4 的 UART/SPI 疑点、GP13/BUSY 冲突、RXEN/TXEN 电平，P0 第一件事核对。
+5. 双供电反灌：固件状态机 + 板级防反灌，两手都要。
+
 
 ---
 
@@ -424,45 +438,46 @@ mavlink monitor on      （旁路观察 MAVLink，预留）
 
 > 以下三个扩展模块（crypto / ota / adr）已全部实现，此处保留实现摘要与位置，供查阅。§13.4 及 §14 为真正的未来演进方向。
 
-### 13.1 加密（crypto）—— ✅ 已实现（P1-4 加固）
+### 13.1 加密（crypto）—— 已实现（P1-4 加固）
 - 帧头 `flags` bit0 = 「加密标志」（`FLAG_ENC`）；帧头偏移 10 新增 `enc_epoch`（开机世代号，NVS 持久化、每次开机 +1）
 - payload 加密（AES-128-CCM，mbedTLS）：密钥 16B 存 NVS、tag 4B、nonce 13B = 9B 零 + `enc_epoch` + `src_id` + `seq`(2B)
-- **AAD 7B** = 逐跳不变的帧头（`src_id`/`dst_id`/`type`/`enc_epoch`/`orig_sysid`/`seq`）→ 无密钥方改帧头会认证失败；`ttl`/`relay_id` 每跳都改，**必须排除**
-- 收端**重放窗**：按发送方 8 源 × 64 位滑动窗，窗口外旧密文重放被拦下（计「重放丢弃」）；**同源 `enc_epoch` 变化（对方重启）⇒ 该源窗口重置并接受**（计「重同步」，A-5c：否则发送方重启后 seq 回退会被永久误判为过旧、"饿死"）
-- 帧头不加密（要能路由）；转发**原样转密文**（nonce 只依赖逐跳不变字段，转发不改）
+- **AAD 7B** = 逐跳不变的帧头（`src_id`/`dst_id`/`type`/`enc_epoch`/`orig_sysid`/`seq`）→ 无密钥方改帧头会认证失败；`ttl`/`relay_id` 每跳都改，必须排除
+- 收端重放窗：按发送方 8 源 × 64 位滑动窗，窗口外旧密文重放被拦下（计「重放丢弃」）；同源 `enc_epoch` 变化（对方重启）⇒ 该源窗口重置并接受（计「重同步」，A-5c：否则发送方重启后 seq 回退会被永久误判为过旧、「饿死」）
+- 帧头不加密（要能路由）；转发原样转密文（nonce 只依赖逐跳不变字段，转发不改）
 - 已知限制：`enc_epoch` 仅 1 字节（同密钥跨 256 次开机后可能重现）；持有旧世代真密文者可触发一次窗口重置（A-5c 方案 A 的已知取舍）
 - 默认关闭，密钥经 CLI `crypto <32hex>` / 网页（ota 模块）设置
 - 位置：`service/crypto`（依赖 frame_codec 的 FLAG_ENC + nvs_cfg 的 crypto_key）
 
-### 13.2 OTA 固件升级（WiFi，ota）—— ✅ 已实现（WiFi AP Web 管理，学 ELRS；P1-5 加固）
+### 13.2 OTA 固件升级（WiFi，ota）—— 已实现（WiFi AP Web 管理，学 ELRS；P1-5 加固）
 - WiFi AP 模式：SSID `EMlink-<node_id>`，IP 192.168.4.1，密码可空；CLI `wifi` 触发，`wifi off` 退出
 - Arduino WebServer + 内嵌 HTML（PROGMEM，不占 RAM 不加 spiffs）：改参数 / 设密钥 / 刷固件(Update.h) / 退出
-- 维护模式 WiFi 与 LoRa **二选一**：`ota_start` 先 `radio_suspend()`（射频 standby + no-op），退出 `radio_resume()`；adr/mac/mesh 零改动
+- 维护模式 WiFi 与 LoRa 二选一：`ota_start` 先 `radio_suspend()`（射频 standby + no-op），退出 `radio_resume()`；adr/mac/mesh 零改动
 - `partition` 表改用 OTA 双分区（`partitions_ota.csv`：app0/app1 各 1.5M + otadata 回滚），刷固件写空闲分区重启切过去，失败可回滚
-- **回滚确认（P1-5，必须做）**：平台启用了 `APP_ROLLBACK`，新固件处于 PENDING_VERIFY；开机满 10s 且 `radio_is_ready()` 时调 `esp_ota_mark_app_valid_cancel_rollback()` 确认，否则**下次重启会被 bootloader 悄悄回滚**；射频起不来就不确认（安全网）
+- **回滚确认（P1-5，必须做）**：平台启用了 `APP_ROLLBACK`，新固件处于 PENDING_VERIFY；开机满 10s 且 `radio_is_ready()` 时调 `esp_ota_mark_app_valid_cancel_rollback()` 确认，否则下次重启会被 bootloader 悄悄回滚；射频起不来就不确认（安全网）
 - **维护模式自动退出（P1-5）**：空闲 5 分钟无客户端、或 30 分钟硬上限（刷固件中不生效）→ 自动退出、恢复 LoRa
-- 仍未做：**网页/OTA 无鉴权**（属产品决策）
+- 仍未做：网页/OTA 无鉴权（属产品决策）
 - 位置：`service/ota`（依赖 nvs_cfg 的 wifi_ssid/pass + crypto 设密钥 + radio suspend/resume/is_ready）
 
-### 13.3 自适应速率（adr）—— ✅ 已实现（BEACON 锚定固定速率表；P1-3 加固）
+### 13.3 自适应速率（adr）—— 已实现（BEACON 锚定固定速率表；P1-3 加固）
 - 非真动态自适应（不按 RSSI/SNR 实时调），就是一张固定速率表，靠 GCS 的 BEACON 对齐全网节奏
 - GCS 每 5s 发 BEACON（固定 SF9 锚点）；5s 周期：t=0~1s SF9（慢速保链接）、t=1~4.5s SF7（快速）、t=4.5~5s SF9（guard 窗抵消 BEACON 空中传播延迟）
 - 非 GCS 开机停 SF9 等 BEACON，收到即对齐周期起点；`radio_set_sf`（standby→setSpreadingFactor→startReceive）运行时切 SF
-- **P1-3 兜底**：信标 ttl 改为 `MESH_BEACON_TTL`(=2) 可被中继转发一次，但**只有直收（`relay_id==0`）的信标参与对齐**（多跳时延无法补偿）；失去对齐基准 15s（权威信标超时，或"只见多跳信标却始终等不到权威信标"）→ **降级到固定速率兼容模式**并告警，重新收到权威信标即自愈；半周期内出现第二个锚点只计数不选举；对齐点按信标 ToA 做补偿（GCS 的时间戳是"入队"时刻，本机基准是"收完"）
-- 真动态自适应（按邻居 RSSI/SNR 调 SF/BW/功率）+ **多 GCS 主从选举**留后演进
+- **P1-3 兜底**：信标 ttl 改为 `MESH_BEACON_TTL`(=2) 可被中继转发一次，但只有直收（`relay_id==0`）的信标参与对齐（多跳时延无法补偿）；失去对齐基准 15s（权威信标超时，或「只见多跳信标却始终等不到权威信标」）→ 降级到固定速率兼容模式并告警，重新收到权威信标即自愈；半周期内出现第二个锚点只计数不选举；对齐点按信标 ToA 做补偿（GCS 的时间戳是「入队」时刻，本机基准是「收完」）
+- 真动态自适应（按邻居 RSSI/SNR 调 SF/BW/功率）+ 多 GCS 主从选举留后演进
 - 位置：`link/adr`（依赖 radio 的 radio_set_sf/airtime_ms + mesh 的 BEACON + `service/role_state` 判 GCS——D2 前是 `app/role`，属中间层反向依赖应用层，已修）
 
-### 13.4 远程参数同步（FRAME_CFG）—— ✅ 已实现
+### 13.4 远程参数同步（FRAME_CFG）—— 已实现
 - 帧类型 `FRAME_CFG`（=6）；GCS CLI `cfg <键> <值>` 广播 `key=value` 给全网
-- 节点收到 → `nvs_cfg_apply_kv` 解析应用（走加密）；**白名单拒 `role`**（防误操作断链）
+- 节点收到 → `nvs_cfg_apply_kv` 解析应用（走加密）；白名单拒 `role`（防误操作断链）
 - 参数重启后生效；`FRAME_CFG` 帧 payload 是纯文本 key=value，不涉及 MAVLink
+
 
 ---
 
 ## 14. 未来展望（硬件扩展路线）
 
-> 现状：**一套固件 + 一套引脚映射**，跑在 ESP32-S3 SuperMini + E220-900M22S（LLCC68）上。
-> 目标：**一套代码库，适配更多 ESP32 系列芯片/开发板 + 更多射频芯片**，低成本批量造不同硬件时只改配置不改业务逻辑。
+> 现状：一套固件 + 一套引脚映射，跑在 ESP32-S3 SuperMini + E220-900M22S（LLCC68）上。
+> 目标：一套代码库，适配更多 ESP32 系列芯片/开发板 + 更多射频芯片，低成本批量造不同硬件时只改配置不改业务逻辑。
 > 具体怎么加新板/新射频的步骤，见 `firmware/docs/HARDWARE_VARIANTS.md`；本节只讲「要往哪个方向扩」。
 
 ### 14.1 适配更多 ESP32 系列芯片 / 开发板
@@ -473,13 +488,13 @@ mavlink monitor on      （旁路观察 MAVLink，预留）
 
 | 板 / 芯片 | 现状 | 适配要点 |
 |---|---|---|
-| ESP32-S3 SuperMini | ✅ 已支持 | 基准板 |
+| ESP32-S3 SuperMini | 已支持 | 基准板 |
 | ESP32-S3 DevKitC-1 / N8R8 等 | 框架已配（`board=esp32s3-devkitc-1`） | 改 Flash/PSRAM 大小即可，引脚同族 |
-| ESP32-C3 系列（SuperMini 等） | 待适配 | 单核、无原生 USB-OTG（USB CDC 走 UART），**射频核/任务核分配要重估** |
+| ESP32-C3 系列（SuperMini 等） | 待适配 | 单核、无原生 USB-OTG（USB CDC 走 UART），射频核/任务核分配要重估 |
 | ESP32（经典，WROOM/WROVER） | 待适配 | 双核但 USB 是外挂串口，`usb_cdc` 模块需换实现 |
 | ESP32-S2 系列 | 待适配 | 单核 + 原生 USB-OTG，引脚差异大 |
 
-板级适配的本质工作：写一个 `<板名>.h` 定义 `PIN_LED / PIN_FC_TX / PIN_FC_RX / FC_UART_NUM` 等，`pinmap.h` 加分支，`platformio.ini` 加 `[env]`。**业务代码零改动**。
+板级适配的本质工作：写一个 `<板名>.h` 定义 `PIN_LED / PIN_FC_TX / PIN_FC_RX / FC_UART_NUM` 等，`pinmap.h` 加分支，`platformio.ini` 加 `[env]`。业务代码零改动。
 
 ### 14.2 适配更多射频芯片
 
@@ -489,21 +504,21 @@ mavlink monitor on      （旁路观察 MAVLink，预留）
 
 | 射频模块 | 芯片 | RadioLib 驱动 | 频段 |
 |---|---|---|---|
-| E220-900M22S | LLCC68 | `SX1262` 类（✅ 已支持；型号校验要求，见 references 档案） | 915MHz |
+| E220-900M22S | LLCC68 | `SX1262` 类（已支持；型号校验要求，见 references 档案） | 915MHz |
 | SX1276/SX1278 系列 | SX127x | SX1278 | 915/433MHz |
 | SX1262 系列 | SX1262 | SX1262 | 915MHz |
 | RF69/RFM69 | RF69 | RF69 | 433/915MHz |
 
-射频适配的本质工作：写 `<射频名>.h` 定义 9 个 `PIN_LORA_*` 引脚 + 芯片类型宏；同族（RadioLib 支持）无需写驱动，不同族才在 `radio.cpp` 按宏分叉实现。**对外接口不变**。
+射频适配的本质工作：写 `<射频名>.h` 定义 9 个 `PIN_LORA_*` 引脚 + 芯片类型宏；同族（RadioLib 支持）无需写驱动，不同族才在 `radio.cpp` 按宏分叉实现。对外接口不变。
 
-### 14.3 硬件扩展要守的约定（写新板/新射频前必读）
+### 14.3 硬件扩展要守的约定
 
-1. **核绑定别拍脑袋**：单核芯片（C3/S2）上，§3.1 的核 0/核 1 分配要整体重估——射频收发与交互不能真并行，需按实测重排优先级。
-2. **USB 实现因芯片而异**：S3 是原生 USB-OTG，但**双 CDC 需要 TinyUSB 复合描述符**（本工程未配，只有单 CDC）；经典 ESP32/C3 是外挂串口芯片或 UART。`usb_cdc` 模块目前是「**单口字节分流**」（`0xFD/0xFE` 按 MAVLink 整帧收，其余当 CLI 文本，见 P1-6），换芯片时这套分流逻辑要跟着核。
-3. **射频开关电平**：不同射频模块的 RXEN/TXEN 电平（active-high/low）可能相反，务必量电平回填，别照抄。
-4. **频段合规**：433MHz / 915MHz 各地政策不同，出货前核当地频谱（延续 §12 第 1 条）。
+1. 核绑定别拍脑袋：单核芯片（C3/S2）上，§3.1 的核 0/核 1 分配要整体重估——射频收发与交互不能真并行，需按实测重排优先级。
+2. USB 实现因芯片而异：S3 是原生 USB-OTG，但双 CDC 需要 TinyUSB 复合描述符（本工程未配，只有单 CDC）；经典 ESP32/C3 是外挂串口芯片或 UART。`usb_cdc` 模块目前是「单口字节分流」（`0xFD/0xFE` 按 MAVLink 整帧收，其余当 CLI 文本，见 P1-6），换芯片时这套分流逻辑要跟着核。
+3. 射频开关电平：不同射频模块的 RXEN/TXEN 电平（active-high/low）可能相反，务必量电平回填，别照抄。
+4. 频段合规：433MHz / 915MHz 各地政策不同，出货前核当地频谱（延续 §12 第 1 条）。
 
-### 14.4 其他演进方向（非硬件）
+### 14.4 其他演进方向
 
 - **真动态 ADR**：现在固定速率表，将来按邻居 RSSI/SNR 实时调 SF/BW/功率（§13.3 已留演进口）。
 - **主动路由表**：节点 >8 时上 `FRAME_ROUTE` 主动路由（§4.5 已留位）。

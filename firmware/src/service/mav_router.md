@@ -1,101 +1,169 @@
 # mav_router —— MAVLink 2 解析与路由
 
 ## 职责
+
 系统的「翻译/搬运工」：把 MAVLink 字节流切成一条条消息，按目标系统标识（`target_sysid`）决定送去哪。
-**只支持 MAVLink 2**（STX=0xFD），不支持 v1。
+只支持 MAVLink 2（STX=0xFD），不支持 v1。
+
+它只做解析和选路，不缓存业务数据；拆片交给 frag，速率控制交给 ratelimit。
+
 
 ## 依赖
+
 - MAVLink 2 官方 C 库（本地化到 `lib/mavlink2/`，头文件库，`#include <common/mavlink.h>`）
 - `frag.h`（超长消息拆片）、`addr_map.h`（sysid↔node 映射）
 
+依赖官方库加两个本工程模块，不碰射频。
+
+
 ## MAVLink 2 帧（供解析）
+
 ```
 0xFD | LEN | incompat_flags | compat_flags | SEQ | SYSID | COMPID | MSGID(3B,24位小端) | payload(LEN) | CKA | CKB
 ```
+
 - 帧头 10 字节，MSGID 3 字节，最小帧 12 字节
 - 状态机找 `0xFD` → 读 LEN → 收齐 `10 + LEN + 2` → 校验 CKA/CKB（CRC-16/MCRF4XX，含 CRC extra）
-- `incompat_flags` 若置签名位（bit0），帧尾多 13 字节签名——本项目关闭签名，遇签名帧可丢弃
-- `MSGID==0`（HEARTBEAT）最高优先级：**优先、及时**中转，绝不滞留（架构 §8.2）
+- `incompat_flags` 若置签名位（bit0），帧尾多 13 字节签名 —— 本项目关闭签名，遇签名帧可丢弃
+- `MSGID==0`（HEARTBEAT）最高优先级：优先、及时中转，绝不滞留（架构 §8.2）
+
+帧长靠 LEN 字段推，不靠猜；签名帧直接丢弃是因为本工程不用签名。
+
 
 ## 路由规则（关键：看 target_sysid，不是帧头 sysid）
-- **帧头 SYSID 是「发送者」**，不是目标，不能拿它做路由
-- **目标在 payload 里的 `target_sysid` 字段**（命令/请求类消息才有，位置随 MSGID 变，按 mavlink 库消息结构读）
+
+- 帧头 SYSID 是「发送者」，不是目标，不能拿它做路由
+- 目标在 payload 里的 `target_sysid` 字段（命令/请求类消息才有，位置随 MSGID 变，按 mavlink 库消息结构读）
 - GCS→多机：GCS 广播；AIR 节点看 `target_sysid` 是否匹配自己飞控，匹配才送 UART，否则丢
-- AIR→GCS：反向路径单播回 GCS；GCS 合并各机数据上 USB，QGC 靠 sysid 自行区分
+- AIR→GCS：反向路径单播回 GCS；GCS 合并各机数据上 USB，地面站靠 sysid 自行区分
 - 收到 HEARTBEAT 时调 `addr_map_learn(帧头SYSID, node_id)` 维护对照表
 
+把「发送者」和「目标」分清是这套路由的前提。
+
+
 ## 心跳中转（保命，架构 §8.2 第 1 条）
-GCS HEARTBEAT 投 `q_mac_tx` 时设 **QOS2 最高优先级**，飞控自己数心跳超时→返航，固件只保证不误时。
+
+GCS HEARTBEAT 投 `q_mac_tx` 时设 QOS2 最高优先级，飞控自己数心跳超时→返航，固件只保证不误时。
+
+心跳走最高优先级，是为了在任何拥塞下都不被推迟。
+
 
 ## 对外接口
+
 见 `mav_router.h`。要点：
+
 - `mav_router_init(local_sysid)`：本机 sysid 由 `role_apply()` 传入（NVS 优先，见 role.md）；顺带清零撞号计数
 - `mav_router_local_sysid()` / `mav_router_sysid_conflict_count()`：CLI status 显示用
 - `mav_router_note_peer_sysid(peer_sysid)`：由 `main.cpp` 的 `on_mesh_rx()` 喂入远端帧的 `orig_sysid`
 
-## 撞号检测（P1-7）
-多机同场最常见的配置错误：两台机器配了同一个 MAVLink sysid → QGC 看到两条流互相覆盖，且都指向同一架飞机。
-- 判定：`on_mesh_rx` 收到远端帧且 `orig_sysid != 0 && orig_sysid == 本机 sysid && src_id != 本机 node_id` → `mav_router_note_peer_sysid()` 计数
-- **必须排除"自己中继回来的帧"**：本机广播帧被邻居转回来时 `src_id` 仍是本机 node_id（转发只改 `relay_id`/`ttl`），否则会自己撞自己、计数虚高
-- 现场证据：CLI `status` 的 `sysid撞号=N`（持续增长即确有他机用同号）；固件不自动改号——**自动改号等于飞行中改身份**，需先与 GCS 约定（P1-8 遗留项）
+对外分初始化、查询和撞号上报三组。
 
-## 流限速（P1-10，只作用于"转 LoRa"方向）
-QGC 默认请求 10~50Hz 遥测，而 10% 占空比下一秒最多发一两帧满帧 → 高频遥测必须按类型降频。
-- 表驱动：`g_stream[]` 给已知高频遥测设**最小转发间隔**（SYS_STATUS 1s、GPS_RAW_INT/ATTITUDE/GLOBAL_POSITION_INT/VFR_HUD 500ms、SCALED_IMU/RC_CHANNELS 200ms）
-- **保命/遥控类永远放行**：HEARTBEAT 表项 `min_interval_ms=0`，COMMAND/PARAM/MISSION 等靠"表里没有即放行"免限速
-- **表外 msgid 一律放行**（不认识的不擅自丢，总量交给 `ratelimit` 兜底）
+
+## 撞号检测（P1-7）
+
+多机同场最常见的配置错误：两台机器配了同一个 MAVLink sysid → 地面站看到两条流互相覆盖，且都指向同一架飞机。
+
+- 判定：`on_mesh_rx` 收到远端帧且 `orig_sysid != 0 && orig_sysid == 本机 sysid && src_id != 本机 node_id` → `mav_router_note_peer_sysid()` 计数
+- 必须排除「自己中继回来的帧」：本机广播帧被邻居转回来时 `src_id` 仍是本机 node_id（转发只改 `relay_id`/`ttl`），否则会自己撞自己、计数虚高
+- 现场证据：CLI `status` 的 `sysid撞号=N`（持续增长即确有他机用同号）；固件不自动改号 —— 自动改号等于飞行中改身份，需先与 GCS 约定（P1-8 遗留项）
+
+只报不改是刻意的：飞行中换身份比撞号更危险。
+
+
+## 流限速（P1-10，只作用于「转 LoRa」方向）
+
+地面站默认请求 10~50Hz 遥测，而 10% 占空比下一秒最多发一两帧满帧 → 高频遥测必须按类型降频。
+
+- 表驱动：`g_stream[]` 给已知高频遥测设最小转发间隔（SYS_STATUS 1s、GPS_RAW_INT/ATTITUDE/GLOBAL_POSITION_INT/VFR_HUD 500ms、SCALED_IMU/RC_CHANNELS 200ms）
+- 保命/遥控类永远放行：HEARTBEAT 表项 `min_interval_ms=0`，COMMAND/PARAM/MISSION 等靠「表里没有即放行」免限速
+- 表外 msgid 一律放行（不认识的不擅自丢，总量交给 `ratelimit` 兜底）
 - 超限 → 计数 `mav_router_stream_drop_count()`（CLI `status` 的「遥测降频」），本帧不转 LoRa
-- 只挂在 `to_lora` 分支：本地串口/USB 方向**不限速**（那是"到飞控/到电脑"的近距离通路，不占空口）
-- 为什么不在 `ratelimit` 做：令牌桶只管总量/优先级，**看不懂 MAVLink 语义**，无法按消息 ID 区分
+- 只挂在 `to_lora` 分支：本地串口/USB 方向不限速（那是「到飞控/到电脑」的近距离通路，不占空口）
+- 不在 `ratelimit` 做的原因：令牌桶只管总量/优先级，看不懂 MAVLink 语义，无法按消息 ID 区分
+
+限速只砍「确定的废话」（已知高频遥测），未知消息一律放行，避免误伤。
+
 
 ## 验收（P3）
+
 - 地面站同时看到 2 架飞机（APM 或 PX4，均配 MAVLink 2）；能读参数、传航点、收遥测
 - 掐断上行后，GCS HEARTBEAT 仍在 1 帧内被中转（无滞留）
 
+两条分别验多机路由和保命优先级。
+
+
+---
+
 ## 当前实现架构（供人和子 agent 阅读）
 
-### 一句话
-MAVLink 的"翻译搬运工"——把字节流切成一条条消息，看消息里的 `target_sysid` 决定送到哪（本地串口还是转 LoRa）。
+### 简介
+
+MAVLink 的「翻译搬运工」—— 把字节流切成一条条消息，看消息里的 `target_sysid` 决定送到哪（本地串口还是转 LoRa）。
+
 
 ### 数据流（三个来源）
+
 ```
 飞控 UART ──> q_uart_rx ──> mavlink_task ──> feed_uart（独立状态机 g_rx_uart）──┐
-QGC  USB  ──> q_usb_rx ──> mavlink_task ──> feed_usb（独立状态机 g_rx_usb）──┤─> route_msg
+地面站 USB ──> q_usb_rx ──> mavlink_task ──> feed_usb（独立状态机 g_rx_usb）──┤─> route_msg
 LoRa mesh ──> on_mesh_rx ──> mav_router_feed（完整消息，不走状态机）────────┘
 ```
 
+三个来源汇到一个路由决策点，前两个走字节状态机，第三个直接进。
+
+
 ### 切帧（状态机，无 mavlink_parse_char）
-- **uart / usb 各独立一套 `rx_state_t`**（`g_rx_uart`/`g_rx_usb`），禁止共用一个字节流缓冲——共用会跨核串包
-- **mesh 来源是完整 MAVLink 消息**（mesh 每帧 payload 就是一条完整消息，分片重组后也是），`mav_router_feed` 直接验 CRC 后 route_msg，**不走状态机**
+
+- uart / usb 各独立一套 `rx_state_t`（`g_rx_uart`/`g_rx_usb`），禁止共用一个字节流缓冲 —— 共用会跨核串包
+- mesh 来源是完整 MAVLink 消息（mesh 每帧 payload 就是一条完整消息，分片重组后也是），`mav_router_feed` 直接验 CRC 后 route_msg，不走状态机
 - 状态机逻辑抽成通用 `feed_bytes(rx_state_t*, data, len, source)`：找 `0xFD` → 读 LEN → 收齐 `10+LEN+2` → 验 CRC → 交 route_msg
 - 手动状态机 + 手动 CRC（用 mavlink 库的 `crc_calculate`/`crc_accumulate` + `mavlink_get_msg_entry` 拿 crc_extra）
 - 帧头字段偏移：STX[0] LEN[1] incompat[2] compat[3] SEQ[4] SYSID[5] COMPID[6] MSGID[7-9]
 
+两套状态机分开是为了避免两个来源的半个帧拼到一起。
+
+
 ### 路由决策 route_msg（关键：看 target_sysid，不是帧头 sysid）
-- 帧头 SYSID 是**发送者**；目标在 payload 里的 `target_sysid` 字段（用 `mavlink_msg_entry.target_system_ofs` 定位）
+
+- 帧头 SYSID 是发送者；目标在 payload 里的 `target_sysid` 字段（用 `mavlink_msg_entry.target_system_ofs` 定位）
 - AIR：UART 来 → 转 LoRa；mesh 来 → target 匹配本机飞控才送 UART
 - GCS：USB 来 → 转 LoRa；mesh 来 → 送 USB
 - HEARTBEAT(msgid=0) 转 LoRa 时用 QOS2（最高优先级，架构 §8.2）
 
+决策只看两个东西：来源方向和目标 sysid。
+
+
 ### 分片
+
 - MAVLink 消息 len > FRAME_MAX_PLAIN(175) → `frag_split` 拆片，每片一个 mesh 帧（frag=1，frag_hdr 填）
 - 每片 frame_encode 前 `crypto_seal_frame` 加密（加密后密文 179 正好塞满 payload 区）
 - 分片前把原始数据存进发送缓存（`g_tx_cache`，FreeRTOS mutex 保护，跨核：core1 缓存 + core0 补发）
-- 分片帧 seq 走 `mesh_next_seq()`（**不再用独立的 `g_mesh_seq`**，多计数器会 seq 重叠丢帧）
+- 分片帧 seq 走 `mesh_next_seq()`（不再用独立的 `g_mesh_seq`，多计数器会 seq 重叠丢帧）
+
+拆片本身在 frag 模块，这里只负责缓存原始数据以便补发。
+
 
 ### 缺件 NACK 补发（mav_router_on_nack）
+
 - 收到 FRAME_NACK（payload `[sysid, frag_seq, 缺失位图]`）→ 匹配缓存（sysid + frag_seq 都对上）
 - 锁内复制到静态补发缓冲 `g_resend`（不在 mesh_task 栈上放大数组），锁外逐片补发缺失片
-- 缓存是"最近一组"：新分片覆盖旧的；NACK 到达时若已被覆盖则匹配不上，走 frag 2s 超时兜底
+- 缓存是「最近一组」：新分片覆盖旧的；NACK 到达时若已被覆盖则匹配不上，走 frag 2s 超时兜底
 - `g_last_hb_ms`（心跳时间戳）跨核写（core0 mesh 来源 + core1 uart/usb 来源），声明 `volatile`
 
+补发缓冲放在静态区而不是栈上，因为要跨任务持有。
+
+
 ### mavlink_task（核1 优先级12）
+
 从 q_uart_rx / q_usb_rx 读字节流块，分别 feed；无 mesh 帧（mesh 帧走 main.cpp 的 on_mesh_rx 回调）
+
 - 任务开头 `watchdog_register_current()` 订阅任务看门狗，循环每轮 `watchdog_feed()`（P0-1）
 
+
 ### USB 侧收帧统计（F15）
-- 定义：`usb_rx` = 从 **USB 来源**收到且 CRC 校验通过的 MAVLink 帧数；`usb_bad` = USB 来源收到但 CRC 校验失败的帧数
+
+- 定义：`usb_rx` = 从 USB 来源收到且 CRC 校验通过的 MAVLink 帧数；`usb_bad` = USB 来源收到但 CRC 校验失败的帧数
 - 位置：只在 `feed_bytes()` 的完整帧分支里自增，且仅当 `source == SRC_USB`；计数是纯附加，不改变原有路由行为（CRC 失败仍和原来一样丢弃）
-- 为什么只算 USB 来源：UART 来自飞控、MESH 来自空口，三种来源混在一起就无法判断"电脑发出去的帧板子到底收没收到"
-- 用途：配合上位机 MAVLink 强行编解码做端到端调试——电脑发一帧，CLI `status` 的 `MAV: USB收帧` 应 +1；只增 `校验失败` 则说明帧格式/CRC 有问题
+- 只算 USB 来源的原因：UART 来自飞控、MESH 来自空口，三种来源混在一起就无法判断「电脑发出去的帧板子到底收没收到」
+- 用途：配合上位机 MAVLink 强行编解码做端到端调试 —— 电脑发一帧，CLI `status` 的 `MAV: USB收帧` 应 +1；只增 `校验失败` 则说明帧格式/CRC 有问题
 - 变量跨核读写（core1 收帧写、CLI 读），声明为 `volatile`

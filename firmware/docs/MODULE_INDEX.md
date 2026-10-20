@@ -4,12 +4,12 @@
 
 ## 1. 模块清单（23 个，按层）
 
-| 层 | 模块 | 一句话职责 |
+| 层 | 模块 | 职责 |
 |---|---|---|
 | drivers | radio | 射频收发/CAD/复位（抽象接口，SX126x 等按宏实现） |
 | drivers | airtime | LoRa 空中时间计算（Semtech 公式，纯逻辑，P1-2） |
 | drivers | uart_fc | 飞控 UART（DMA 环形缓冲） |
-| drivers | usb_cdc | **单口分流**：一个 USB 虚拟串口同时跑 MAVLink（`0xFD/0xFE` 整帧）与 CLI（文本），P1-6 |
+| drivers | usb_cdc | 单口分流：一个 USB 虚拟串口同时跑 MAVLink（`0xFD/0xFE` 整帧）与 CLI（文本），P1-6 |
 | drivers | power_detect | USB 插入检测 |
 | link | frame_codec | 帧编解码 + CRC（纯逻辑） |
 | link | mac | LBT + ACK 重传 + 发送准入 |
@@ -22,8 +22,8 @@
 | service | addr_map | sysid↔node 对照表 |
 | service | nvs_cfg | 配置持久化 |
 | service | watchdog | 看门狗 + 射频自救 |
-| service | version | 固件版本 / 协议版本宣告（T-2；属**基础支撑**横切件，不算独立模块——无 .md，说明见 `version.h`/`version.cpp` 与总架构 §5） |
-| service | role_state | 本机角色的唯一真源（D2；**基础支撑**横切件——中间层读角色不再依赖 `app/`，角色常量在 `nvs_cfg.h`，策略仍在 `app/role`） |
+| service | version | 固件版本 / 协议版本宣告（T-2；属基础支撑横切件，不算独立模块 —— 无 .md，说明见 `version.h`/`version.cpp` 与总架构 §5） |
+| service | role_state | 本机角色的唯一真源（D2；基础支撑横切件 —— 中间层读角色不再依赖 `app/`，角色常量在 `nvs_cfg.h`，策略仍在 `app/role`） |
 | service | ratelimit | 按 QoS 令牌桶流量整形（控制流保底份额，P1-10） |
 | service | crypto | 帧载荷加密（AES-128-CCM，§13.1 已实现） |
 | service | ota | OTA 固件升级 + WiFi Web 管理（§13.2 已实现） |
@@ -31,6 +31,8 @@
 | app | cli | 命令行 |
 | app | stats | 统计 + LED + 喂狗 |
 | app | failsafe_policy | 故障安全 + 电源状态机 |
+
+清单里 modules 一栏就是 `firmware/src/<层>/<模块>.{h,cpp,md}` 的路径。
 
 ## 2. 依赖关系（谁依赖谁）
 
@@ -58,8 +60,10 @@ drivers: radio ─┬─ RadioLib, pinmap, airtime
          uart_fc / usb_cdc / power_detect ─┬─ pinmap
 ```
 
-> 依赖只向下：drivers ← link ← net ← service ← app。`airtime` 放在 drivers 层是为了让 `radio`（drivers）能用它——若放 link 层会形成 drivers→link 的反向依赖。
-> `ratelimit` 放 service 层、被 link 层的 `mac` 使用：与 `crypto`（service）被 `net/mesh` 使用同理（service 是"能力层"，可被上层按需调用）。
+> 依赖只向下：drivers ← link ← net ← service ← app。`airtime` 放在 drivers 层是为了让 `radio`（drivers）能用它 —— 若放 link 层会形成 drivers→link 的反向依赖。
+> `ratelimit` 放 service 层、被 link 层的 `mac` 使用：与 `crypto`（service）被 `net/mesh` 使用同理（service 是「能力层」，可被上层按需调用）。
+
+`tools/check_deps.py` 就是按这套方向做机器体检的。
 
 ## 3. 建议实现顺序（自底向上，对齐架构 §11）
 
@@ -71,8 +75,8 @@ drivers: radio ─┬─ RadioLib, pinmap, airtime
 | **P3** | addr_map → frag → mav_router | 2 机 + 航点 + 遥测 |
 | **P4** | failsafe_policy | 断链 3s 返航 |
 
-**扩展模块（不在 P0~P4 主线，见架构 §13）**：crypto / adr / ota 三个已全部实现（P4 后补做）。
-**后补模块**：airtime（P1-2 新增，drivers 层纯逻辑工具）、ratelimit（P1-10 新增，service 层流量整形）。
+扩展模块（不在 P0~P4 主线，见架构 §13）：crypto / adr / ota 三个已全部实现（P4 后补做）。
+后补模块：airtime（P1-2 新增，drivers 层纯逻辑工具）、ratelimit（P1-10 新增，service 层流量整形）。
 
 ## 4. 给大模型的固定提示词模板
 
