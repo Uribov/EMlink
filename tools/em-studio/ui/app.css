@@ -350,10 +350,6 @@ color:var(--text);max-height:110px;overflow:auto}
 }
 
 /* ---- D4：固件烧录 ---- */
-.flash-block{border-top:1px solid var(--line);margin-top:18px;padding-top:16px;flex:none}
-.flash-title{margin:0 0 12px;font-size:10px;font-weight:600;letter-spacing:.16em;
-text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:10px}
-.flash-title:after{content:"";flex:1;height:1px;background:var(--line2)}
 .flash-file{display:flex;align-items:center;gap:10px;min-width:0}
 .flash-file .btn{margin:0;padding:8px 12px;font-size:10px;flex:none}
 .flash-path{flex:1;min-width:0;font-family:ui-monospace,Menlo,Consolas,monospace;
