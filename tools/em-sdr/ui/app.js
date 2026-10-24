@@ -72,9 +72,10 @@ function drawSpectrum(snap) {
     return;
   }
 
-  // 纵向范围：底噪往下 6 dB 到峰值往上 6 dB，平滑过渡
-  const lo = snap.floor - 6;
-  const hi = Math.max(snap.peak + 6, snap.floor + 24);
+  // 纵向范围：故意拉开。底噪往下 12 dB、往上 45 dB（不够容纳峰值时再扩）。
+  // 范围越大，噪声起伏在图上的占比越小 —— 看起来只有一点点，信号峰才跳得出来。
+  const lo = snap.floor - 12;
+  const hi = Math.max(snap.floor + 45, snap.peak + 3);
   if (!specRange) specRange = [lo, hi];
   specRange[0] += (lo - specRange[0]) * 0.15;
   specRange[1] += (hi - specRange[1]) * 0.15;
@@ -123,11 +124,18 @@ function drawSpectrum(snap) {
 
 const wfCv = $('wf-canvas');
 let wfImg = null;
-let wfRows = [];
+let wfRows = [];                 // 前端自己累积瀑布行
+const WF_MAX_ROWS = 200;
 
 function drawWaterfall(snap) {
+  // 后端每帧只发最新一行，这里往下累积
+  if (snap.row && snap.row.length) {
+    wfRows.push(snap.row);
+    if (wfRows.length > WF_MAX_ROWS) wfRows.shift();
+  }
+
   const { ctx, w, h } = fitCanvas(wfCv);
-  const rows = snap.rows || [];
+  const rows = wfRows;
 
   // 行数或宽度变了就重建离屏图
   const needW = Math.floor(w);
@@ -426,11 +434,12 @@ async function tickSlow() {
 function boot() {
   paintFreq();
   paintGain();
-  setInterval(tickFast, 66);       // ~15 fps
+  setInterval(tickFast, 40);       // 25 fps（后端每帧只发一行，够快也够轻）
   setInterval(tickSlow, 500);      // 2 fps
   window.addEventListener('resize', () => {
+    specRange = null;            // 尺寸变了，重新算纵向范围
     drawSpectrum({ spec: [], floor: -100, peak: -80 });
-    drawWaterfall({ rows: [] });
+    drawWaterfall({});
   });
 }
 

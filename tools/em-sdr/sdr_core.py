@@ -68,9 +68,9 @@ OS_FACTOR = SAMP_RATE // BW  # = 8
 
 # ---- 频谱参数 ----
 FFT_BINS = 1024              # FFT 点数
-SPEC_BINS = 256              # 送给前端的点数（降采样，省带宽）
-SPEC_FPS = 15                # 频谱刷新率
-WATERFALL_ROWS = 120         # 瀑布保留行数
+SPEC_BINS = 512              # 送给前端的点数（提高横向密度）
+SPEC_FPS = 25                # 频谱刷新率
+WATERFALL_ROWS = 200         # 瀑布保留行数（25 fps 下约 8 秒）
 
 # ---- 采集参数 ----
 READ_CHUNK = 65536           # 每次从 rtl_sdr 读多少字节
@@ -120,14 +120,19 @@ class NodeStats:
 
 
 class Spectrum:
-    """最新一帧频谱 + 瀑布历史。"""
+    """最新一帧频谱。
+
+    只保留**最新一行**瀑布数据：整张瀑布由前端累积。原因是一行 512 个点
+    已经够用，而把 200 行整张发过去每帧就是 10 万个数字、JSON 几百 KB，
+    25 fps 下界面会直接卡死。
+    """
 
     def __init__(self):
         self._lock = threading.Lock()
         self._spec = [-120.0] * SPEC_BINS
         self._floor = -120.0
         self._peak = -120.0
-        self._rows = []          # 瀑布，每行 list[int]，0..255
+        self._row = [0] * SPEC_BINS      # 最新一行瀑布（0..255）
 
     def update(self, iq: np.ndarray) -> None:
         n = min(FFT_BINS, iq.size)
@@ -148,16 +153,16 @@ class Spectrum:
         floor = float(np.percentile(db, 20))
         peak = float(db.max())
 
+        # 瀑布映射：底噪附近为暗，往上 26 dB 逐渐到白
+        lo, hi = floor - 2.0, floor + 26.0
+        norm = np.clip((db - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
+        row = (norm * 255).astype(np.uint8).tolist()
+
         with self._lock:
             self._spec = db.tolist()
             self._floor = floor
             self._peak = peak
-            # 瀑布：把 dB 映射到 0..255
-            lo, hi = floor - 2.0, floor + 26.0
-            norm = np.clip((db - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
-            self._rows.append((norm * 255).astype(np.uint8).tolist())
-            if len(self._rows) > WATERFALL_ROWS:
-                del self._rows[:len(self._rows) - WATERFALL_ROWS]
+            self._row = row
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -165,7 +170,7 @@ class Spectrum:
                 "spec": [round(v, 1) for v in self._spec],
                 "floor": round(self._floor, 1),
                 "peak": round(self._peak, 1),
-                "rows": self._rows[-WATERFALL_ROWS:],
+                "row": self._row,     # 只有最新一行，前端自己往下累积
             }
 
 
