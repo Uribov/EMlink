@@ -280,8 +280,12 @@
       const valueText = item.value === null || item.value === undefined ? '' : String(item.value);
       if (label.textContent !== labelText) {
         label.textContent = labelText;
-        label.title = labelText;
       }
+      // 悬停显示完整含义（面向新手，来自 status-help.js 的词典）
+      const hint = (window.EM_STATUS_HELP &&
+        window.EM_STATUS_HELP.itemLoose(labelText)) || '';
+      const labelTip = hint ? `${labelText} —— ${hint}` : labelText;
+      if (label.title !== labelTip) label.title = labelTip;
       if (value.textContent !== valueText) {
         value.textContent = valueText;
         value.title = valueText;
@@ -409,6 +413,10 @@
 
       const name = card.querySelector('.status-layer');
       if (name.textContent !== layerName) name.textContent = layerName;
+      const layerHint = (window.EM_STATUS_HELP &&
+        window.EM_STATUS_HELP.layer(layerName)) || '';
+      const layerTip = layerHint ? `${layerName} —— ${layerHint}` : layerName;
+      if (name.title !== layerTip) name.title = layerTip;
 
       const dot = card.querySelector('.status-card-head .st');
       const dotClass = statusDotClass(statusLayerLevel(layer));
@@ -2538,6 +2546,20 @@
 
   bindEvents();
   renderAll();
+
+  /* 给参数配置的每个 label 挂上解释：从 status-help.js 的词典里查，
+     匹配时去掉括号里的补充说明（如「节点号（1–254）」→「节点号」） */
+  function attachCfgHelp() {
+    if (!window.EM_STATUS_HELP) return;
+    document.querySelectorAll('label[for^="cfg-"]').forEach(function (lb) {
+      const full = lb.textContent.trim();
+      const base = full.replace(/（.*?）/g, '').replace(/\(.*?\)/g, '').trim();
+      const hint = window.EM_STATUS_HELP.cfg(base);
+      if (hint) lb.title = base + ' —— ' + hint;
+    });
+  }
+
+  attachCfgHelp();
 
   if (window.pywebview && window.pywebview.api) {
     boot();
