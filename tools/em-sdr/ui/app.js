@@ -216,7 +216,7 @@ function renderNodes(snap) {
     const rssi = n.rssi === null ? '—' : `${n.rssi.toFixed(0)}`;
     const snr = n.snr === null ? '—' : `${n.snr.toFixed(0)}`;
     return `
-      <div class="node ${dead ? 'dead' : ''}">
+      <div class="node ${dead ? 'dead' : ''}" data-node="${n.node_id}">
         <div class="hd">
           <div class="id"><small>节点</small>${n.node_id}</div>
           <span class="dot"></span>
@@ -235,6 +235,85 @@ function renderNodes(snap) {
       </div>`;
   }).join('');
 }
+
+/* ---------------- 节点详情 ---------------- */
+
+let detailNode = null;
+let lastLogKey = '';
+
+function openDetail(nodeId) {
+  detailNode = nodeId;
+  lastLogKey = '';
+  $('panel-nodes').hidden = true;
+  $('panel-detail').hidden = false;
+  $('detail-id').textContent = String(nodeId);
+  $('detail-log').innerHTML = '<div class="line out-empty">等待该节点的帧…</div>';
+  tickDetail();
+}
+
+function closeDetail() {
+  detailNode = null;
+  $('panel-nodes').hidden = false;
+  $('panel-detail').hidden = true;
+}
+
+function renderLog(entries) {
+  const box = $('detail-log');
+  if (!entries || !entries.length) {
+    if (lastLogKey !== 'empty') {
+      box.innerHTML = '<div class="line out-empty">等待该节点的帧…</div>';
+      lastLogKey = 'empty';
+    }
+    return;
+  }
+
+  const key = `${entries.length}:${entries[entries.length - 1].t}`;
+  if (key === lastLogKey) return;
+  lastLogKey = key;
+
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+
+  box.innerHTML = entries.map((e) => {
+    const frag = e.frag ? ` frag=${e.frag}` : '';
+    const ack = e.ack ? ' ack' : '';
+    const enc = e.enc ? ' enc' : '';
+    const hex = e.hex ? `<div class="line"><span class="k">payload</span> <span class="hex">${e.hex}</span></div>` : '';
+    return `<div class="line">` +
+      `<span class="t">${e.t}.${String(e.ms).padStart(3, '0')}</span> ` +
+      `<span class="role">${e.role.padEnd(5, ' ')}</span> ` +
+      `<span class="k">src</span>=<span class="v">${e.src}</span> ` +
+      `<span class="k">relay</span>=<span class="v">${e.relay}</span> ` +
+      `<span class="k">ttl</span>=<span class="v">${e.ttl}</span> ` +
+      `<span class="k">seq</span>=<span class="v">${e.seq}</span> ` +
+      `<span class="k">${e.proto}</span> ` +
+      `<span class="k">len</span>=<span class="v">${e.len}</span>` +
+      `<span class="k"> qos</span>=<span class="v">${e.qos}</span>${ack}${enc}${frag} ` +
+      `<span class="k">snr</span>=<span class="v">${e.snr}</span>` +
+      `</div>${hex}`;
+  }).join('');
+
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+async function tickDetail() {
+  if (detailNode === null) return;
+  const d = await call('get_node_detail', detailNode);
+  if (!d || !d.node) return;
+  const n = d.node;
+  $('det-frames').textContent = n.frames;
+  $('det-snr').textContent = n.snr === null ? '—' : n.snr;
+  $('det-dbfs').textContent = n.rssi === null ? '—' : n.rssi;
+  $('det-age').textContent = fmtAge(n.age_ms);
+  $('detail-hint').textContent = n.alive ? '在线' : '已失联';
+  renderLog(d.log);
+}
+
+grid.addEventListener('click', (e) => {
+  const card = e.target.closest('.node');
+  if (card && card.dataset.node) openDetail(Number(card.dataset.node));
+});
+
+$('btn-back').addEventListener('click', closeDetail);
 
 /* ---------------- 左栏控件 ---------------- */
 
@@ -340,6 +419,9 @@ async function tickSlow() {
     $('st-fail').textContent = ns.fail;
   }
   if (st) $('st-samples').textContent = `${st.seconds}s`;
+
+  // 详情页打开时同步刷新它的日志
+  if (detailNode !== null) tickDetail();
 }
 
 function boot() {

@@ -107,6 +107,9 @@ class Api:
     def get_nodes(self):
         return self._safe(self.core.sink.snapshot)
 
+    def get_node_detail(self, node_id):
+        return self._safe(lambda: self.core.sink.node_detail(int(node_id)))
+
     # ---------- 关闭 ----------
 
     def shutdown(self):

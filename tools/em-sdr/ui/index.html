@@ -71,10 +71,29 @@
       <canvas id="wf-canvas"></canvas>
     </section>
 
-    <section class="panel nodes">
+    <section class="panel nodes" id="panel-nodes">
       <h2>节点 <span class="hint" id="nodes-hint">等待数据</span></h2>
       <div class="node-grid" id="node-grid">
         <div class="empty">还没有收到任何节点的帧</div>
+      </div>
+    </section>
+
+    <section class="panel nodes node-detail" id="panel-detail" hidden>
+      <h2>
+        <button class="back" id="btn-back" type="button">← 返回</button>
+        节点 <span class="det-id" id="detail-id">—</span>
+        <span class="hint" id="detail-hint"></span>
+      </h2>
+
+      <div class="link-metrics" id="detail-metrics">
+        <div class="lm"><span class="lm-k">帧数</span><span class="lm-v" id="det-frames">—</span></div>
+        <div class="lm"><span class="lm-k">SNR</span><span class="lm-v" id="det-snr">—</span><span class="lm-u">dB</span></div>
+        <div class="lm"><span class="lm-k">dBFS</span><span class="lm-v" id="det-dbfs">—</span></div>
+        <div class="lm"><span class="lm-k">最后</span><span class="lm-v" id="det-age">—</span></div>
+      </div>
+
+      <div class="output" id="detail-log" role="log" aria-live="polite">
+        <div class="line out-empty">等待该节点的帧…</div>
       </div>
     </section>
   </div>

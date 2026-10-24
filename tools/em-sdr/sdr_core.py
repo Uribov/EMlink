@@ -83,7 +83,9 @@ class NodeStats:
     """一个节点的接收状态。"""
 
     __slots__ = ("node_id", "frames", "last_seen", "rssi", "snr", "roles",
-                 "relays", "last_len", "by_type")
+                 "relays", "last_len", "by_type", "log")
+
+    MAX_LOG = 200          # 每节点保留的日志条数
 
     def __init__(self, node_id: int):
         self.node_id = node_id
@@ -95,6 +97,12 @@ class NodeStats:
         self.relays = set()
         self.last_len = 0
         self.by_type = {}
+        self.log: list[dict] = []
+
+    def add_log(self, entry: dict) -> None:
+        self.log.append(entry)
+        if len(self.log) > self.MAX_LOG:
+            del self.log[:len(self.log) - self.MAX_LOG]
 
     def to_dict(self, now: float) -> dict:
         age = now - self.last_seen if self.last_seen else 1e9
@@ -221,6 +229,28 @@ class FrameSink:
                    "MSP" if frame.proto == PROTO_MSP else "CUSTOM")
             st.by_type[key] = st.by_type.get(key, 0) + 1
 
+            # 该节点的接收日志：谁是源、谁是中继、这一跳的详情
+            role = "src" if node_id == frame.src_id else "relay"
+            st.add_log({
+                "t": time.strftime("%H:%M:%S", time.localtime(now)),
+                "ms": int((now % 1) * 1000),
+                "role": role,
+                "src": frame.src_id,
+                "relay": frame.relay_id,
+                "ttl": frame.ttl,
+                "seq": frame.seq,
+                "proto": key,
+                "len": len(frame.payload),
+                "qos": frame.qos,
+                "ack": bool(frame.ack_req),
+                "frag": (f"{frame.frag_index + 1}/{frame.frag_total}"
+                         if frame.frag else None),
+                "enc": bool(frame.enc),
+                "snr": round(snr, 1),
+                "dbfs": round(snap_peak, 1),
+                "hex": frame.payload.hex()[:64],
+            })
+
     def _event_locked(self, now: float, kind: str, text: str) -> None:
         self.events.append({
             "t": time.strftime("%H:%M:%S", time.localtime(now)),
@@ -241,6 +271,15 @@ class FrameSink:
                 "fail": self.fail,
                 "events": self.events[-40:],
             }
+
+    def node_detail(self, node_id: int) -> dict:
+        """单个节点的完整信息 + 接收日志（供详情页）。"""
+        now = time.time()
+        with self._lock:
+            st = self.nodes.get(node_id)
+            if st is None:
+                return {"node": None, "log": []}
+            return {"node": st.to_dict(now), "log": list(st.log)}
 
 
 class SDRCore:
@@ -435,27 +474,38 @@ class SDRCore:
         sink_obj = self.sink
 
         class IQSource(gr.sync_block):
-            """从 queue 取 u8 字节，给流图当源。没数据返回 0（GNU Radio 会重试）。"""
+            """从 queue 取 u8 字节，直接输出复采样。
+
+            输出 complex64 而不是 uint8：u8 流是 I/Q 交错，如果按字节往外送，
+            GNU Radio 随时可能切在 I 和 Q 中间，后面就全反相、永远解不出。
+            在这里一次转好，对齐由 out_sig 的类型保证。
+            """
 
             def __init__(self):
                 gr.sync_block.__init__(
                     self, name="emsdr_iq_source",
-                    in_sig=None, out_sig=[np.uint8],
+                    in_sig=None, out_sig=[np.complex64],
                 )
                 self._buf = bytearray()
 
             def work(self, input_items, output_items):
                 out = output_items[0]
                 cap = len(out)
-                while len(self._buf) < cap:
+                need = cap * 2          # 一个复采样 = 两个字节
+                while len(self._buf) < need:
                     try:
                         self._buf.extend(q.get_nowait())
                     except queue.Empty:
                         break
-                n = min(cap, len(self._buf))
+                n = min(cap, len(self._buf) // 2)
                 if n:
-                    out[:n] = np.frombuffer(bytes(self._buf[:n]), dtype=np.uint8)
-                    del self._buf[:n]
+                    raw = np.frombuffer(
+                        bytes(self._buf[:n * 2]), dtype=np.uint8,
+                    ).astype(np.float32)
+                    i = (raw[0::2] - 127.5) / 128.0
+                    qq = (raw[1::2] - 127.5) / 128.0
+                    out[:n] = i + 1j * qq
+                    del self._buf[:n * 2]
                 else:
                     time.sleep(0.002)   # 避免空转吃满 CPU
                 return n
@@ -521,8 +571,6 @@ class SDRCore:
         try:
             tb = gr.top_block("emsdr")
             src = IQSource()
-            c2c = blocks.interleaved_char_to_complex(False, 1.0 / 128.0)
-            offset = blocks.add_const_cc(-127.5 / 128.0)
 
             fs = lora_sdr.frame_sync(
                 int(self.freq_hz), BW, SF, IMPL_HEAD, [SYNC_WORD],
@@ -538,17 +586,27 @@ class SDRCore:
             crc = lora_sdr.crc_verif(0, False)
             sinkblk = FrameSinkBlock(sink_obj)
 
-            tb.connect(src, c2c, offset, fs, fft, gm, dei, hd, hdec,
-                       dw, crc, sinkblk)
+            tb.connect(src, fs, fft, gm, dei, hd, hdec, dw, crc, sinkblk)
             tb.msg_connect((hdec, "frame_info"), (fs, "frame_info"))
 
             self._tb = tb
             tb.start()
+            print("[解码] 流图已启动", flush=True)
+            _reported = 0
             while self._running:
-                time.sleep(0.2)
+                time.sleep(1.0)
+                # 每秒报一次队列深度，判断解码是否跟得上采集
+                _reported += 1
+                if _reported % 5 == 0:
+                    print(f"[解码] 队列={self._iq_queue.qsize()} "
+                          f"帧={sink_obj.total} 失败={sink_obj.fail}",
+                          flush=True)
             tb.stop()
             tb.wait()
         except Exception as exc:
+            import traceback
+            print(f"[解码] 流图异常: {type(exc).__name__}: {exc}", flush=True)
+            traceback.print_exc()
             with self._lock:
                 self._error = f"解码流图异常: {exc}"
         finally:

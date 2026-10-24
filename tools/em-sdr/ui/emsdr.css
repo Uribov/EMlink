@@ -105,7 +105,7 @@ input[type=range]::-moz-range-track{height:1px;background:var(--line);border:0}
 .node-grid .empty{grid-column:1/-1;color:var(--dim);font-size:12px;padding:20px 0;text-align:center}
 
 .node{border:1px solid var(--line);padding:12px;display:flex;flex-direction:column;gap:8px;
-  transition:border-color .12s}
+  transition:border-color .12s;cursor:pointer}
 .node:hover{border-color:var(--text)}
 .node.dead{opacity:.42}
 
@@ -127,3 +127,48 @@ input[type=range]::-moz-range-track{height:1px;background:var(--line);border:0}
 .node .tag{font-size:9px;letter-spacing:.1em;text-transform:uppercase;
   color:var(--muted);border:1px solid var(--line2);padding:2px 6px}
 .node .age{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+
+/* ---------- 节点详情（样式对齐 EM Studio 的诊断台） ---------- */
+
+.node-detail h2{gap:12px}
+.node-detail h2 .det-id{font-family:ui-monospace,Menlo,Consolas,monospace;
+  font-size:14px;letter-spacing:0;color:var(--text);text-transform:none}
+.node-detail h2 .hint{font-size:9px;letter-spacing:.1em;color:var(--dim);text-transform:none}
+
+.back{flex:none;padding:5px 10px;background:transparent;border:1px solid var(--line);
+  border-radius:0;color:var(--muted);font-size:10px;letter-spacing:.1em;
+  font-family:inherit;cursor:pointer}
+.back:hover{border-color:var(--text);color:var(--text)}
+.back:active{background:#1c1c1c}
+
+/* 指标条：四个格子，中间竖线分隔，与 EM Studio 的 .link-metrics 同构 */
+.link-metrics{flex:none;display:grid;grid-template-columns:repeat(4,1fr);
+  border:1px solid var(--line);margin-bottom:12px}
+.link-metrics .lm{display:flex;align-items:baseline;gap:7px;padding:10px 12px;
+  border-right:1px solid var(--line2);min-width:0}
+.link-metrics .lm:last-child{border-right:0}
+.link-metrics .lm-k{font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);flex:none}
+.link-metrics .lm-v{font-size:15px;font-weight:500;
+  font-family:ui-monospace,Menlo,Consolas,monospace;color:var(--text);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.link-metrics .lm-u{font-size:9px;letter-spacing:.1em;color:var(--dim);flex:none}
+
+/* 日志区：黑底等宽、1px 边框、逐行淡入 —— 与 EM Studio 的 .output 一致 */
+.output{flex:1;min-height:0;overflow-y:auto;border:1px solid var(--line);
+  background:#0a0a0a;padding:12px 14px;
+  font-family:ui-monospace,Menlo,Consolas,monospace;
+  font-size:12px;line-height:1.6;scrollbar-width:thin}
+.output .line{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text);
+  animation:line-in .18s ease-out both}
+.output .line .t{color:var(--dim)}
+.output .line .role{color:var(--muted)}
+.output .line .k{color:var(--muted)}
+.output .line .v{color:var(--text)}
+.output .line .hex{color:var(--muted);word-break:break-all}
+.output .line.out-empty{color:var(--dim);animation:none}
+.output .line.warn{color:var(--err)}
+@keyframes line-in{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}
+
+/* hidden 必须压得住 .nodes{display:flex}，否则详情页永远露出来 */
+[hidden]{display:none!important}
