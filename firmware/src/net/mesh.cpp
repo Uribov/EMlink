@@ -421,6 +421,10 @@ static void mesh_task_func(void* arg) {
 
         // BEACON：记录邻居链路质量 + 对齐 ADR 周期；不投递，但允许转发（P1-3）
         if (f.type == FRAME_BEACON) {
+            // 自己发的信标经中继转发回来（src_id 是自己）：这不是"邻居在场"，
+            // 计进去会让 AIR收 ≈ AIR发、GCS 的 信标= 自我翻倍。直接忽略。
+            if (f.src_id == g_my_node_id) continue;
+
             route_learn(f.src_id, f.relay_id);
             route_update_rssi(f.src_id, item.rssi);
             // v3：第 2 字节是发送者角色；旧固件只有 1 字节 → 按 GCS 处理，退回旧行为
