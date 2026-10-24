@@ -20,12 +20,14 @@ for size in 512 256 128 64 48; do
     done
 done
 
-# 矢量源也装一份，高分屏/缩放时优先用
+# 矢量源不再安装：第一版 SVG 是细线设计（已废弃），
+# 若留在 scalable/ 下，部分主题会优先选 SVG，桌面就显示旧图标了。
 SCAL="$ICON_ROOT/scalable/apps"
-mkdir -p "$SCAL"
 for name in em-studio em-sdr; do
-    [ -f "$ICONS_SRC/${name}.svg" ] && cp -f "$ICONS_SRC/${name}.svg" "$SCAL/${name}.svg" \
-        && echo "  $SCAL/${name}.svg"
+    if [ -f "$SCAL/${name}.svg" ]; then
+        rm -f "$SCAL/${name}.svg"
+        echo "  已移除旧矢量图标 $SCAL/${name}.svg"
+    fi
 done
 
 echo
@@ -41,7 +43,7 @@ Name[zh_CN]=EM Studio
 GenericName=EMlink 配置工具
 Comment=配置 EMlink 数传节点、查看设备状态、烧录固件
 Exec=/home/sun/EMlink/tools/em-studio/run.sh
-Icon=em-studio
+Icon=$ICON_ROOT/256x256/apps/em-studio.png
 Terminal=false
 Categories=Development;
 Keywords=EMlink;LoRa;Mesh;串口;烧录;
@@ -57,7 +59,7 @@ Name[zh_CN]=EM-SDR
 GenericName=空口监视器
 Comment=监听 915 MHz 上 EMlink 节点的频谱、瀑布与帧活动
 Exec=/home/sun/EMlink/tools/em-sdr/run.sh --autostart
-Icon=em-sdr
+Icon=$ICON_ROOT/256x256/apps/em-sdr.png
 Terminal=false
 Categories=Development;
 Keywords=EMlink;LoRa;SDR;频谱;瀑布;
