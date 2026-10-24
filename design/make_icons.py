@@ -83,20 +83,28 @@ def sdr() -> Image.Image:
     _card(img)
     d = ImageDraw.Draw(img)
 
-    # 频谱波形：13 个点、关于中心严格对称，钟形包络中间最高两侧递减，
-    # 相邻点高低交替形成锯齿感。不用随机折点，随机形状读起来是"噪声"。
+    # 频谱波形：13 个点、关于中心严格镜像。
+    # 关键：谷底固定在同一水平线上（base 常数），只有峰高按包络递减，
+    # 主峰独占 1.0、相邻次峰明显压低，突出"收到一个强信号"这件事。
     pad = 40
     w = BASE - 2 * pad
     n = 13
     center = n // 2
-    top_y, bot_y = 48, 158
+    top_y, bot_y = 44, 136
+
+    base = 0.12          # 谷底高度，全图统一 → 水平基线
+    peak_gain = 0.72     # 次峰最大幅度（主峰为 1.0，不乘这个系数）
+    falloff = 2.1        # 包络衰减指数，越大主峰越突出
 
     ys = []
     for i in range(n):
-        dist = abs(i - center) / center          # 0 = 中心，1 = 两端
-        env = 0.34 + 0.66 * (1.0 - dist) ** 1.45  # 钟形：中间 1.0，两端 0.34
-        alt = 1.0 if (i - center) % 2 == 0 else 0.60  # 奇偶交替，且关于中心对称
-        h = env * alt
+        dist = abs(i - center) / center
+        if i == center:
+            h = 1.0                                  # 主峰
+        elif (i - center) % 2 == 0:
+            h = base + peak_gain * (1.0 - dist) ** falloff  # 次峰，递减
+        else:
+            h = base                                 # 谷，严格水平
         ys.append(bot_y - int((bot_y - top_y) * h))
     xs = [pad + int(w * i / (n - 1)) for i in range(n)]
     d.line(list(zip(xs, ys)), fill=FG, width=7, joint="curve")
