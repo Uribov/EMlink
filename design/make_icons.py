@@ -17,7 +17,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+import numpy as np
+from PIL import Image, ImageChops, ImageDraw
 
 BG = (13, 13, 13)
 EDGE = (44, 44, 44)
@@ -30,6 +31,64 @@ G3 = (52, 52, 52)
 SIZES = (512, 256, 128, 64, 48)
 OUT = Path("/home/sun/EMlink/design/icons")
 BASE = 256          # 所有坐标按 256 设计，再等比缩放
+
+
+def _tri_mesh(size: int, step: int = 30) -> Image.Image:
+    """EMlink logo 同款三角网格：水平线 + 两组 60 度斜线。
+
+    返回 L 模式遮罩（线条处 255，空白 0），由调用方再乘透明度与径向衰减。
+    """
+    layer = Image.new("L", (size, size), 0)
+    d = ImageDraw.Draw(layer)
+    h = step * 0.8660          # 等边三角形的高
+
+    y = 0.0
+    while y <= size:
+        d.line([(0, y), (size, y)], fill=255, width=1)
+        y += h
+
+    # 两组 60 度斜线，斜率 tan(60°) = 1.732
+    slope = 1.7320
+    span = int(slope * size) + size
+    x = -span
+    while x <= size + span:
+        d.line([(x, 0), (x + size * slope, size)], fill=255, width=1)
+        d.line([(x, size), (x + size * slope, 0)], fill=255, width=1)
+        x += step
+
+    return layer
+
+
+def _radial_fade(size: int, inner: float = 0.42,
+                 outer: float = 1.02) -> Image.Image:
+    """径向遮罩：中心 0（完全消失）→ 边缘 255（可见）。
+
+    inner 以内全 0，outer 以外全 255，中间线性过渡。
+    """
+    arr = np.zeros((size, size), dtype=np.float32)
+    c = (size - 1) / 2.0
+    ys, xs = np.mgrid[0:size, 0:size]
+    dist = np.sqrt((xs - c) ** 2 + (ys - c) ** 2) / c     # 0 = 中心，1 = 边中点
+    t = (dist - inner) / max(outer - inner, 1e-6)
+    arr = np.clip(t, 0.0, 1.0)
+    return Image.fromarray((arr * 255).astype(np.uint8), mode="L")
+
+
+def _add_mesh(img: Image.Image, strength: int = 34) -> None:
+    """在图标卡上叠加淡淡三角网格，中心淡出。
+
+    strength 是网格线在边缘处的最大不透明度（0-255）。34 压在 #0d0d0d 上
+    约等于 #262626，暗到不抢主体、亮到边缘能看出是网。
+    """
+    size = img.size[0]
+    mesh = _tri_mesh(size)
+    fade = _radial_fade(size)
+    alpha = ImageChops.multiply(mesh, fade)
+    alpha = alpha.point(lambda v: int(v * strength / 255))
+
+    layer = Image.new("RGBA", (size, size), (128, 128, 128, 0))
+    layer.putalpha(alpha)
+    img.alpha_composite(layer)
 
 
 def _blank() -> Image.Image:
@@ -51,6 +110,7 @@ def studio() -> Image.Image:
     """设备方框 + 框内参数条 + 实心滑块。"""
     img = _blank()
     _card(img)
+    _add_mesh(img)          # 先铺背景网格，主体压在上面
     d = ImageDraw.Draw(img)
 
     # 设备外框：粗，作为主体轮廓
@@ -81,6 +141,7 @@ def sdr() -> Image.Image:
     """粗波形 + 亮度递减的瀑布方块矩阵。"""
     img = _blank()
     _card(img)
+    _add_mesh(img)          # 先铺背景网格，主体压在上面
     d = ImageDraw.Draw(img)
 
     # 频谱波形：13 个点、关于中心严格镜像。
