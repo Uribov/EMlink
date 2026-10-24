@@ -94,24 +94,23 @@ function drawSpectrum(snap) {
     ctx.setLineDash([]);
   }
 
-  // 频谱曲线
+  // 频谱：密密麻麻的柱状图。每根柱子上沿 = 该频点的 dBFS，
+  // 柱宽自适应画布（256 个点铺满，中间留 1px 缝隙，读起来像 SDR 的密集竖线）
   const n = spec.length;
-  ctx.beginPath();
-  for (let i = 0; i < n; i++) {
-    const x = (i / (n - 1)) * w;
-    const y = h - ((spec[i] - rLo) / span) * h;
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  }
-  ctx.strokeStyle = '#ededed';
-  ctx.lineWidth = 1.2;
-  ctx.stroke();
+  const barStep = w / n;
+  const barW = Math.max(1, barStep - 1);
 
-  // 曲线下方淡淡填充，让它看起来像"地板上的山"
-  ctx.lineTo(w, h);
-  ctx.lineTo(0, h);
-  ctx.closePath();
-  ctx.fillStyle = 'rgba(237,237,237,0.07)';
-  ctx.fill();
+  for (let i = 0; i < n; i++) {
+    const x = i * barStep;
+    const y = h - ((spec[i] - rLo) / span) * h;
+    const top = Math.max(0, Math.min(h, y));
+    if (h - top < 1) continue;
+
+    // 超过底噪一定幅度的柱子用亮白，其余用中灰 —— 一眼能分出"有信号"和"只有噪声"
+    const strong = spec[i] > snap.floor + 6;
+    ctx.fillStyle = strong ? '#ededed' : '#5a5a5a';
+    ctx.fillRect(x, top, barW, h - top);
+  }
 
   // 中心频率刻度
   ctx.fillStyle = '#4a4a4a';
