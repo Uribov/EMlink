@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>EM-SDR</title>
+<link rel="stylesheet" href="emsdr.css">
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>EM-SDR<span class="dot">.</span></h1>
+    <div class="sub">
+      <span>915 MHz · SF7 · BW125 · sync 0x12</span>
+    </div>
+  </div>
+  <div class="head-right">
+    <span class="st" id="st-run"><i></i><b>采集</b></span>
+    <span class="stat" id="hdr-frames">0 帧</span>
+    <span class="stat" id="hdr-nodes">0 节点</span>
+  </div>
+</header>
+
+<main>
+  <!-- 左栏：只有频率和增益 -->
+  <aside class="col-left">
+    <section class="panel">
+      <h2>频率</h2>
+      <div class="big-val" id="freq-val">915.000</div>
+      <div class="unit">MHz</div>
+      <input type="range" id="freq-slider" min="902000000" max="928000000"
+             step="25000" value="915000000">
+      <div class="row-tiny">
+        <button class="mini" data-freq="902000000">902</button>
+        <button class="mini" data-freq="915000000">915</button>
+        <button class="mini" data-freq="923000000">923</button>
+        <button class="mini" data-freq="868000000">868</button>
+      </div>
+      <div class="note">ISM 频段，915 MHz 为中心</div>
+    </section>
+
+    <section class="panel">
+      <h2>增益</h2>
+      <div class="big-val" id="gain-val">40.2</div>
+      <div class="unit">dB</div>
+      <input type="range" id="gain-slider" min="0" max="28" step="1" value="22">
+      <div class="note">太强会饱和，太弱收不到</div>
+    </section>
+
+    <section class="panel">
+      <button class="btn primary" id="btn-run">启动</button>
+    </section>
+
+    <section class="panel">
+      <h2>状态</h2>
+      <div class="kv"><span>底噪</span><b id="st-floor">—</b></div>
+      <div class="kv"><span>峰值</span><b id="st-peak">—</b></div>
+      <div class="kv"><span>样本</span><b id="st-samples">—</b></div>
+      <div class="kv"><span>解帧</span><b id="st-total">0</b></div>
+      <div class="kv"><span>失败</span><b id="st-fail">0</b></div>
+      <div class="err" id="st-error"></div>
+    </section>
+  </aside>
+
+  <!-- 右：上频谱瀑布，下节点格子 -->
+  <div class="col-main">
+    <section class="panel scope">
+      <h2>频谱</h2>
+      <canvas id="spec-canvas"></canvas>
+      <h2 class="wf-title">瀑布</h2>
+      <canvas id="wf-canvas"></canvas>
+    </section>
+
+    <section class="panel nodes">
+      <h2>节点 <span class="hint" id="nodes-hint">等待数据</span></h2>
+      <div class="node-grid" id="node-grid">
+        <div class="empty">还没有收到任何节点的帧</div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

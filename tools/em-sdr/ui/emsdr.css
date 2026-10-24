@@ -1,0 +1,129 @@
+/* EM-SDR 样式
+   延续 EM Studio：纯黑白灰、1px 发丝线、零圆角、无渐变无阴影，
+   彩色只出现在状态小圆点。变量与 em-studio/ui/shared.css 保持一致。 */
+
+*{box-sizing:border-box}
+:root{
+  --bg:#0d0d0d;--line:#2c2c2c;--line2:#232323;--text:#ededed;
+  --muted:#7d7d7d;--dim:#4a4a4a;--ok:#34d399;--err:#f87171;
+  --pad:18px;
+}
+html,body{margin:0;padding:0;height:100%;overflow:hidden}
+body{
+  background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  display:flex;flex-direction:column;
+}
+
+/* ---------- 顶栏 ---------- */
+header{
+  flex:none;display:flex;align-items:flex-end;justify-content:space-between;
+  padding:20px 24px 16px;border-bottom:1px solid var(--line);
+}
+h1{margin:0;font-size:34px;line-height:1;font-weight:600;letter-spacing:-.035em}
+h1 .dot{color:var(--dim)}
+.sub{margin-top:8px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+.head-right{display:flex;align-items:center;gap:18px;font-size:10px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.stat{font-family:ui-monospace,Menlo,Consolas,monospace;color:var(--text);letter-spacing:.06em}
+
+.st{display:inline-flex;align-items:center;gap:7px}
+.st i{width:6px;height:6px;border-radius:50%;background:var(--dim);flex:none}
+.st.on i{background:var(--ok)}
+.st.bad i{background:var(--err)}
+.st b{font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.st.on b{color:var(--text)}
+
+/* ---------- 主体两栏 ---------- */
+main{flex:1;display:grid;grid-template-columns:260px 1fr;min-height:0}
+.col-left{
+  border-right:1px solid var(--line);overflow-y:auto;
+  padding:var(--pad);display:flex;flex-direction:column;gap:var(--pad);
+}
+.col-main{display:flex;flex-direction:column;min-height:0;padding:var(--pad);gap:var(--pad)}
+
+.panel{border:1px solid var(--line);padding:16px;background:transparent}
+
+h2{margin:0 0 14px;font-size:10px;font-weight:600;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:10px}
+h2:after{content:"";flex:1;height:1px;background:var(--line2)}
+h2 .hint{font-size:9px;letter-spacing:.1em;color:var(--dim);text-transform:none}
+
+/* ---------- 左栏控件 ---------- */
+.big-val{font-size:30px;line-height:1;font-weight:500;letter-spacing:-.02em;
+  font-family:ui-monospace,Menlo,Consolas,monospace}
+.unit{font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--dim);margin:6px 0 4px}
+
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:1px;
+  background:var(--line);border:0;outline:none;margin:16px 0}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;
+  background:var(--text);border:0;border-radius:0;cursor:pointer}
+input[type=range]::-moz-range-thumb{width:14px;height:14px;background:var(--text);
+  border:0;border-radius:0;cursor:pointer}
+input[type=range]::-moz-range-track{height:1px;background:var(--line);border:0}
+
+.row-tiny{display:flex;gap:6px}
+.mini{flex:1;padding:7px 0;background:transparent;border:1px solid var(--line);
+  border-radius:0;color:var(--muted);font-size:10px;letter-spacing:.1em;
+  font-family:ui-monospace,Menlo,Consolas,monospace;cursor:pointer}
+.mini:hover{border-color:var(--text);color:var(--text)}
+.mini.act{background:var(--text);color:var(--bg);border-color:var(--text)}
+
+.btn{display:block;width:100%;padding:13px 16px;background:transparent;
+  border:1px solid var(--line);border-radius:0;color:var(--text);font-size:11px;
+  font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+  font-family:inherit;cursor:pointer}
+.btn:hover{border-color:var(--text)}
+.btn:active{background:#1c1c1c}
+.btn.primary{background:var(--text);color:var(--bg);border-color:var(--text)}
+.btn.primary:hover{background:#fff}
+
+.note{margin-top:10px;font-size:10px;color:var(--dim);letter-spacing:.04em}
+.kv{display:flex;justify-content:space-between;align-items:baseline;
+  padding:6px 0;border-bottom:1px solid var(--line2);font-size:11px}
+.kv:last-child{border-bottom:0}
+.kv span{color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-size:9px}
+.kv b{font-weight:500;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+.err{margin-top:10px;font-size:10px;color:var(--err);line-height:1.4;word-break:break-all}
+
+/* ---------- 频谱 / 瀑布 ---------- */
+.scope{flex:none;padding:16px 16px 12px}
+.scope canvas{display:block;width:100%;border:1px solid var(--line2);background:#080808}
+#spec-canvas{height:150px}
+.wf-title{margin:14px 0 10px}
+#wf-canvas{height:170px;image-rendering:pixelated}
+
+/* ---------- 节点格子 ---------- */
+.nodes{flex:1;min-height:0;display:flex;flex-direction:column}
+.node-grid{
+  flex:1;overflow-y:auto;display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
+  gap:10px;align-content:start;
+}
+.node-grid .empty{grid-column:1/-1;color:var(--dim);font-size:12px;padding:20px 0;text-align:center}
+
+.node{border:1px solid var(--line);padding:12px;display:flex;flex-direction:column;gap:8px;
+  transition:border-color .12s}
+.node:hover{border-color:var(--text)}
+.node.dead{opacity:.42}
+
+.node .hd{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.node .id{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:17px;
+  font-weight:500;letter-spacing:-.01em;line-height:1}
+.node .id small{font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--dim);margin-right:5px;font-family:inherit;font-weight:400}
+.node .dot{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none}
+.node.dead .dot{background:var(--dim)}
+
+.node .bar{height:2px;background:var(--line2);position:relative;overflow:hidden}
+.node .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--text);display:block}
+
+.node .meta{display:flex;justify-content:space-between;font-size:10px;
+  font-family:ui-monospace,Menlo,Consolas,monospace;color:var(--muted)}
+.node .meta b{color:var(--text);font-weight:500}
+.node .tags{display:flex;flex-wrap:wrap;gap:5px}
+.node .tag{font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);border:1px solid var(--line2);padding:2px 6px}
+.node .age{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}

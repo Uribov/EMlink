@@ -17,7 +17,7 @@ import time
 
 import numpy as np
 import pmt
-from gnuradio import blocks, gr, network
+from gnuradio import blocks, filter, gr, network
 from gnuradio import lora_sdr
 
 from emlink_frame import (
@@ -212,21 +212,53 @@ def build_flowgraph(args, pipeline: MeshPipeline):
                 False, False, 1.0 / 32768.0,
             )
             head = (src, i2c)
+        elif args.format == "u8":
+            # rtl_sdr 原生输出：8-bit 无符号交错，中心 127.5
+            src = blocks.file_source(gr.sizeof_char, args.file, False)
+            c2c = blocks.interleaved_char_to_complex(False, 1.0 / 128.0)
+            offset = blocks.add_const_cc(-127.5 / 128.0)
+            head = (src, c2c, offset)
         else:
             src = blocks.file_source(gr.sizeof_gr_complex, args.file, False)
             head = (src,)
     else:
-        itemsize = gr.sizeof_short if args.format == "i16" else gr.sizeof_gr_complex
+        if args.format == "i16":
+            itemsize = gr.sizeof_short
+        elif args.format == "u8":
+            itemsize = gr.sizeof_char
+        else:
+            itemsize = gr.sizeof_gr_complex
         src = network.udp_source(
-            itemsize, 1, args.udp, 0, 1472, False, False, False,
+            itemsize, 1, args.udp, 0, args.udp_payload, False, False, False,
         )
         if args.format == "i16":
             i2c = blocks.interleaved_short_to_complex(
                 False, False, 1.0 / 32768.0,
             )
             head = (src, i2c)
+        elif args.format == "u8":
+            c2c = blocks.interleaved_char_to_complex(False, 1.0 / 128.0)
+            offset = blocks.add_const_cc(-127.5 / 128.0)
+            head = (src, c2c, offset)
         else:
             head = (src,)
+
+    # 源侧采样率与 SAMP_RATE 不一致时先做有理重采样
+    # （SDR++ 的 network_sink 采样率上限只有 192000，直接喂进 frame_sync 会因 os_factor 非整数而失败）
+    if getattr(args, "resample_from", None) and args.resample_from != SAMP_RATE:
+        import math
+
+        g = math.gcd(int(args.resample_from), SAMP_RATE)
+        interp = SAMP_RATE // g
+        decim = int(args.resample_from) // g
+        rs = filter.rational_resampler_ccf(interp, decim)
+        head = tuple(head) + (rs,)
+        if not args.quiet:
+            print(
+                f"重采样: {args.resample_from} -> {SAMP_RATE} "
+                f"(interp={interp}, decim={decim})",
+                flush=True,
+            )
 
     fs = lora_sdr.frame_sync(
         int(CENTER_FREQ), BW, SF, IMPL_HEAD, [SYNC_WORD],
@@ -263,14 +295,25 @@ def main(argv=None) -> int:
         "--udp", nargs="?", const=4242, type=int,
         help="从 UDP 收 int16 交错流（默认端口 4242）",
     )
-    parser.add_argument("--format", choices=("i16", "cf32"), default="i16",
-                        help="i16 = int16 交错（默认），cf32 = complex float32")
+    parser.add_argument("--format", choices=("i16", "u8", "cf32"), default="i16",
+                        help="i16 = int16 交错（默认），u8 = rtl_sdr 的 8-bit 无符号交错，"
+                             "cf32 = complex float32")
     parser.add_argument("--hex", action="store_true",
                         help="额外打印 payload hex")
     parser.add_argument("--limit", type=int, default=None,
                         help="收到 N 条 mesh 帧后停止")
     parser.add_argument("--quiet", action="store_true",
                         help="只打印解码结果，不打流图噪声")
+    parser.add_argument(
+        "--resample-from", type=int, default=None, dest="resample_from",
+        help="源侧采样率；与 1.0 MS/s 不同时自动有理重采样"
+             "（SDR++ network_sink 上限 192000 时用这个）",
+    )
+    parser.add_argument(
+        "--udp-payload", type=int, default=12800, dest="udp_payload",
+        help="每个 UDP 包的字节数，必须与 SDR++ network_sink 实际包长一致"
+             "（实测 192000 Hz + stereo 时是 12800；对不上会丢掉大部分样本）",
+    )
     args = parser.parse_args(argv)
 
     if args.limit is not None and args.limit < 1:
