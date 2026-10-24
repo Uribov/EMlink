@@ -310,6 +310,17 @@ class SDRCore:
         self._samples = 0
         self._lock = threading.Lock()
 
+        # ---- 原始 IQ 录制 ----
+        # 录制在 reader 线程里顺手写盘，不额外复制数据；写盘速度跟不上就丢新块，
+        # 宁可少几块也不能反过来卡住采集（否则频谱会顿）。
+        self._rec_lock = threading.Lock()
+        self._rec_fp = None            # 打开的文件对象
+        self._rec_path = ""
+        self._rec_bytes = 0            # 已写入字节
+        self._rec_target_bytes = 0     # 目标字节数
+        self._rec_dropped = 0          # 因写盘失败/阻塞丢掉的块数
+        self._rec_error = ""
+
     # ---------- 状态 ----------
 
     @property
@@ -396,6 +407,97 @@ class SDRCore:
         self._kill_proc()
         time.sleep(0.2)
 
+    # ---------- 录制原始 IQ ----------
+
+    def start_record(self, seconds: float, out_dir: str | None = None) -> dict:
+        """开始录制原始 u8 IQ。1 MS/s 下每秒约 2 MB。"""
+        seconds = float(seconds)
+        if not (0.5 <= seconds <= 120):
+            raise ValueError("录制时长需在 0.5~120 秒之间")
+        if not self._running:
+            raise RuntimeError("先启动采集再录制")
+
+        with self._rec_lock:
+            if self._rec_fp is not None:
+                raise RuntimeError("已经在录制了")
+            d = Path(out_dir) if out_dir else Path.home() / "sdr-captures"
+            d.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            freq_mhz = f"{self.freq_hz / 1e6:.3f}"
+            path = d / f"emsdr_{stamp}_{freq_mhz}MHz_{int(SAMP_RATE/1000)}k.cu8"
+
+            self._rec_fp = open(path, "wb")
+            self._rec_path = str(path)
+            self._rec_bytes = 0
+            self._rec_target_bytes = int(seconds * SAMP_RATE * 2)  # u8 IQ = 2 字节/采样
+            self._rec_dropped = 0
+            self._rec_error = ""
+            return {
+                "path": str(path),
+                "target_bytes": self._rec_target_bytes,
+                "seconds": seconds,
+            }
+
+    def stop_record(self, abort: bool = False) -> dict:
+        with self._rec_lock:
+            return self._close_record_locked(abort)
+
+    def _close_record_locked(self, abort: bool) -> dict:
+        fp = self._rec_fp
+        path = self._rec_path
+        wrote = self._rec_bytes
+        dropped = self._rec_dropped
+        err = self._rec_error
+        self._rec_fp = None
+        if fp is not None:
+            try:
+                fp.close()
+            except Exception:
+                pass
+        result = {
+            "path": path,
+            "bytes": wrote,
+            "seconds": round(wrote / (SAMP_RATE * 2), 2),
+            "dropped_chunks": dropped,
+            "aborted": abort,
+            "error": err,
+        }
+        self._rec_path = ""
+        return result
+
+    def record_status(self) -> dict:
+        with self._rec_lock:
+            if self._rec_fp is None:
+                return {"recording": False}
+            total = self._rec_target_bytes or 1
+            return {
+                "recording": True,
+                "path": self._rec_path,
+                "bytes": self._rec_bytes,
+                "target_bytes": self._rec_target_bytes,
+                "percent": round(min(100.0, self._rec_bytes / total * 100), 1),
+                "seconds": round(self._rec_bytes / (SAMP_RATE * 2), 2),
+                "dropped_chunks": self._rec_dropped,
+            }
+
+    def _record_chunk(self, chunk: bytes) -> None:
+        """reader 线程调用：把这一块追加进正在录制的文件。"""
+        with self._rec_lock:
+            fp = self._rec_fp
+            if fp is None:
+                return
+            try:
+                fp.write(chunk)
+                self._rec_bytes += len(chunk)
+            except Exception as exc:
+                self._rec_dropped += 1
+                self._rec_error = f"{type(exc).__name__}: {exc}"
+                if self._rec_dropped > 50:      # 连续写不进去就别硬撑了
+                    self._close_record_locked(abort=True)
+                return
+            if self._rec_bytes >= self._rec_target_bytes:
+                self._close_record_locked(abort=False)
+
     # ---------- 采集 ----------
 
     def _spawn(self) -> subprocess.Popen:
@@ -462,6 +564,10 @@ class SDRCore:
                 c = iq[0::2] + 1j * iq[1::2]
                 self.spectrum.update(c)
             self._samples += len(chunk) // 2
+
+            # 2. 正在录制就顺手写盘（原始 u8 IQ，不转格式）
+            if self._rec_fp is not None:
+                self._record_chunk(chunk)
 
             # 2. 喂解码队列（丢了就丢了，解码慢不能反过来卡采集）
             try:

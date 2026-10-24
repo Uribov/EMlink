@@ -172,3 +172,13 @@ input[type=range]::-moz-range-track{height:1px;background:var(--line);border:0}
 
 /* hidden 必须压得住 .nodes{display:flex}，否则详情页永远露出来 */
 [hidden]{display:none!important}
+
+/* ---------- 录制原始 IQ ---------- */
+#rec-dur{margin-bottom:12px}
+.rec-progress{margin-top:12px}
+.rec-bar{height:2px;background:var(--line2);position:relative;overflow:hidden}
+.rec-bar i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ok);display:block;
+  transition:width .15s linear}
+.rec-meta{display:flex;justify-content:space-between;margin-top:7px;
+  font-size:10px;font-family:ui-monospace,Menlo,Consolas,monospace;color:var(--muted)}
+.btn.recording{background:var(--err);color:var(--bg);border-color:var(--err)}

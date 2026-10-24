@@ -411,6 +411,66 @@ document.querySelectorAll('.mini').forEach((b) => {
   });
 });
 
+/* ---------------- 录制原始 IQ ---------------- */
+
+let recSeconds = 5;
+let recording = false;
+
+document.querySelectorAll('#rec-dur .mini').forEach((b) => {
+  b.addEventListener('click', () => {
+    if (recording) return;
+    recSeconds = Number(b.dataset.sec);
+    document.querySelectorAll('#rec-dur .mini').forEach((x) =>
+      x.classList.toggle('act', x === b));
+  });
+});
+
+function paintRec(st) {
+  const btn = $('btn-rec');
+  const box = $('rec-progress');
+  const note = $('rec-note');
+
+  if (!st || !st.recording) {
+    recording = false;
+    btn.textContent = '开始录制';
+    btn.classList.remove('recording');
+    box.hidden = true;
+    return;
+  }
+
+  recording = true;
+  btn.textContent = '停止录制';
+  btn.classList.add('recording');
+  box.hidden = false;
+  $('rec-bar-fill').style.width = `${st.percent}%`;
+  $('rec-pct').textContent = `${st.percent}%`;
+  $('rec-sec').textContent = `${st.seconds}s`;
+  if (note) note.textContent = `${Math.round(st.target_bytes / 1048576)} MB → ${st.path}`;
+}
+
+async function toggleRecord() {
+  if (!recording) {
+    const r = await call('start_record', recSeconds);
+    if (!r) { tickRecord(); return; }
+    $('rec-note').textContent = `录制中 → ${r.path}`;
+  } else {
+    const r = await call('stop_record');
+    if (r && r.path) {
+      $('rec-note').textContent =
+        `已保存 ${(r.bytes / 1048576).toFixed(1)} MB / ${r.seconds}s → ${r.path}`;
+    }
+  }
+  tickRecord();
+}
+
+$('btn-rec').addEventListener('click', toggleRecord);
+
+async function tickRecord() {
+  const st = await call('record_status');
+  if (!st) return;
+  paintRec(st);
+}
+
 /* ---------------- 启停 ---------------- */
 
 let running = false;
@@ -475,6 +535,9 @@ async function tickSlow() {
 
   // 详情页打开时同步刷新它的日志
   if (detailNode !== null) tickDetail();
+
+  // 录制进度
+  if (recording) tickRecord();
 }
 
 function boot() {

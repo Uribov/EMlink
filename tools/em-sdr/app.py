@@ -110,6 +110,17 @@ class Api:
     def get_node_detail(self, node_id):
         return self._safe(lambda: self.core.sink.node_detail(int(node_id)))
 
+    # ---------- 原始 IQ 录制 ----------
+
+    def start_record(self, seconds):
+        return self._safe(lambda: self.core.start_record(float(seconds)))
+
+    def stop_record(self):
+        return self._safe(lambda: self.core.stop_record(abort=True))
+
+    def record_status(self):
+        return self._safe(self.core.record_status)
+
     # ---------- 关闭 ----------
 
     def shutdown(self):

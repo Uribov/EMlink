@@ -52,6 +52,21 @@
     </section>
 
     <section class="panel">
+      <h2>录制原始 IQ</h2>
+      <div class="row-tiny" id="rec-dur">
+        <button class="mini act" data-sec="5">5s</button>
+        <button class="mini" data-sec="10">10s</button>
+        <button class="mini" data-sec="30">30s</button>
+      </div>
+      <button class="btn" id="btn-rec" type="button">开始录制</button>
+      <div class="rec-progress" id="rec-progress" hidden>
+        <div class="rec-bar"><i id="rec-bar-fill"></i></div>
+        <div class="rec-meta"><span id="rec-pct">0%</span><span id="rec-sec">0.0s</span></div>
+      </div>
+      <div class="note" id="rec-note">u8 原始样本，1 秒约 2 MB</div>
+    </section>
+
+    <section class="panel">
       <h2>状态</h2>
       <div class="kv"><span>底噪</span><b id="st-floor">—</b></div>
       <div class="kv"><span>峰值</span><b id="st-peak">—</b></div>
