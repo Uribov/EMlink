@@ -41,6 +41,17 @@
 关掉之后这台机器就退化成一个固定 SF 的普通节点，信标照收照发，只是不再跟着改自己的节奏。
 
 
+## AIR 在场信标（低频，非权威）
+
+飞机（`ROLE_AIR`）除了被动等 GCS 锚点，还会周期性发一个自己的 BEACON，让空口上能看见「飞机还活着」。
+
+- **不对齐**：接收端只把非 GCS 信标算作「在场/可见性」，计入**独立的 `AIR收` 计数**（`g_air_seen`，不是 `多跳` 那个计数——同名会误导，一架飞机自己喊几声不该算成经过中继），绝不更新 `g_anchor_src_id` / `g_epoch_ms` / `g_has_beacon` / `g_compat`，所以不会污染全网时间基准。
+- **间隔可配**：NVS 键 `air_beacon_s`（秒），默认 `10`，`0` = 关闭；与 `beacon_s`（GCS 锚点周期）是两个独立配置项。
+- **独立于 ADR 开关**：`adr=off` 时仍然发送（由 `air_beacon_tick()` 独立计时，不经过 `adr_tick()`）。
+- **不切 SF**：用当前 SF 发送，不干扰 ADR 的速率表；单次发射、无 ACK、无重传，丢了就等下一个间隔。
+- **协议兼容**：BEACON payload 为 2 字节 `{协议版本, 发送者角色}`；旧固件只有 1 字节，接收端按 `ROLE_GCS` 处理，退回旧行为。新固件之间靠第 2 字节区分「权威 GCS 信标」和「AIR 在场信标」。
+
+
 ## 速率表（方案定死，5s 保守周期）
 
 | 相位（5s 周期内） | SF | 用途 |
@@ -84,7 +95,7 @@
 
 ## 对外接口
 
-见 `adr.h`：`adr_init / adr_on_beacon(src,relay) / adr_tick / adr_current_sf / adr_set_enabled / adr_is_enabled` + 诊断 `adr_beacon_count / adr_beacon_hop_count / adr_desync_count / adr_multi_anchor_count / adr_has_beacon / adr_compat_mode`。
+见 `adr.h`：`adr_init / adr_on_beacon(src,relay,role) / adr_tick / air_beacon_tick / adr_current_sf / adr_set_enabled / adr_is_enabled` + 诊断 `adr_beacon_count / adr_beacon_hop_count / adr_desync_count / adr_multi_anchor_count / adr_air_beacon_count / adr_has_beacon / adr_compat_mode`。
 
 对外分两组：一组是控制与查询，一组是六个诊断计数。
 
@@ -112,6 +123,8 @@
 - `g_last_any_beacon_ms` / `g_first_any_beacon_ms`：任意信标（含多跳）的最近/首次时刻
 - `g_anchor_src_id`：当前锚点 node_id（0=未知）
 - `g_hop_count` / `g_beacon_count` / `g_desync` / `g_multi_anchor` / `g_compat`：计数与降级状态
+- `g_air_seen`：收到别家 AIR 在场信标的次数（与 `g_hop_count` 分开，避免把同级飞机算成中继）
+- `g_air_beacon_s` / `g_last_air_beacon_ms` / `g_air_beacon_count`：AIR 在场信标间隔（NVS）、上次发送时刻、已发计数
 - 以上全部 `volatile`：跨核（mac_task core0 写 + mesh_task core0 写 + core1 读 `adr_current_sf`）
 
 前七个是状态，最后一行五个计数加一个降级标志；全部 volatile 是因为读写不在同一个核上。
@@ -146,7 +159,8 @@ GCS 走独立分支，其余节点在「未对齐 / 已对齐 / 兼容」三个�
 
 - `adr_tick()` 在 mac_task 循环顶部调用（每轮 ~5ms）：与射频收发同任务串行，切 SF 的 SPI 操作不会和 `radio_transmit`/`readPacket` 打架
   （`adr.h` 里「由 stats_task 1s 调一次」是旧注释，以此处为准；历史实现确实在 stats_task，已迁移）
-- `adr_on_beacon(src_id, relay_id)` 在 mesh_task 收到 FRAME_BEACON 时调用（信标现在允许被中继转发一次，见 mesh.md）
+- `air_beacon_tick()` 紧跟在 `adr_tick()` 之后调用（同一 mac_task 循环）：AIR 低频信标与 ADR 共享发射串行化，但不依赖 `adr_en`
+- `adr_on_beacon(src_id, relay_id, sender_role)` 在 mesh_task 收到 FRAME_BEACON 时调用（信标现在允许被中继转发一次，见 mesh.md）；`sender_role != ROLE_GCS` 时只记可见性并直接返回
 - `adr_init()` 在 main.cpp `radio_start()` 后调用，先把射频停在 SF9
 
 三个挂接点分属两个任务：切 SF 在 mac_task，收信标在 mesh_task，初始化在 setup。

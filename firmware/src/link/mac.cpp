@@ -176,6 +176,8 @@ static void mac_task_func(void* arg) {
         watchdog_feed();
         // ADR 周期 tick（与收发同任务串行，切 SF 不会与 SPI 冲突）
         adr_tick();
+        // AIR 低频在场信标：独立于 ADR 开关，用当前 SF 发（不切速率）
+        air_beacon_tick();
 
         // 按优先级读：hi > med > lo（高优先级帧最多延迟 5ms）
         BaseType_t got = xQueueReceive(q_mac_tx_hi, &item, 0);

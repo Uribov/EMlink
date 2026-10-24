@@ -63,7 +63,7 @@ void cli_help() {
 static void cmd_get_all() {
     const char* keys[] = {"role","node_id","sysid","freq","sf","bw","cr","power",
                           "syncword","uart_baud","ttl","ack_timeout_ms","retries",
-                          "beacon_s","failsafe_s","adr_en","usb_fwd","name"};
+                          "beacon_s","air_beacon_s","failsafe_s","adr_en","usb_fwd","name"};
     char val[64];
     for (size_t i = 0; i < sizeof(keys)/sizeof(keys[0]); i++) {
         if (nvs_cfg_get(keys[i], val, sizeof(val))) {
@@ -354,9 +354,11 @@ void cli_handle_line(const char* line) {
         cli_print(line);
         // 中间层·速率：ADR/信标/相位协商，属于链路自适应。
         snprintf(line, sizeof(line),
-                 "速率: ADR 对齐=%s  信标=%u  多跳=%u  失步=%u  多锚点=%u  SF=%u  beacon_s=%s  adr=%s\r\n",
+                 "速率: ADR 对齐=%s  信标=%u  AIR发=%u  AIR收=%u  多跳=%u  失步=%u  多锚点=%u  SF=%u  beacon_s=%s  adr=%s\r\n",
                  adr_has_beacon() ? (adr_compat_mode() ? "降级" : "是") : "否",
-                 (unsigned)adr_beacon_count(), (unsigned)adr_beacon_hop_count(),
+                 (unsigned)adr_beacon_count(), (unsigned)adr_air_beacon_count(),
+                 (unsigned)adr_air_seen_count(),
+                 (unsigned)adr_beacon_hop_count(),
                  (unsigned)adr_desync_count(), (unsigned)adr_multi_anchor_count(),
                  (unsigned)adr_current_sf(), bcn[0] ? bcn : "-",
                  adr_is_enabled() ? "on" : "off");

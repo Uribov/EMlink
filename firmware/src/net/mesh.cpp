@@ -328,7 +328,7 @@ bool mesh_send_ctrl(uint8_t type, uint8_t dst_id, uint8_t qos, bool ack_req,
     return rtos_tx_enqueue(&item);
 }
 
-bool mesh_send_beacon() {
+bool mesh_send_beacon(uint8_t sender_role) {
     frame_t f = {};
     f.type       = FRAME_BEACON;
     f.qos        = QOS0;
@@ -341,11 +341,11 @@ bool mesh_send_beacon() {
     f.seq        = mesh_next_seq();
     f.ttl        = MESH_BEACON_TTL;   // 允许 1 跳转发（P1-3）
     f.orig_sysid = 0;
-    // T-2：BEACON payload = 1 字节协议版本（不加密）。
-    // ver 必须活到 frame_encode 拷贝完成（payload 指针未被提前释放）。
-    uint8_t ver = EM_PROTO_VERSION;
-    f.payload    = &ver;
-    f.payload_len = 1;
+    // v3：BEACON payload = 2 字节，{协议版本, 发送者角色}（不加密）。
+    // pl 必须活到 frame_encode 拷贝完成（payload 指针未被提前释放）。
+    uint8_t pl[2] = { EM_PROTO_VERSION, sender_role };
+    f.payload    = pl;
+    f.payload_len = 2;
 
     uint8_t buf[FRAME_MTU];
     size_t n = frame_encode(&f, buf, sizeof(buf));
@@ -423,7 +423,9 @@ static void mesh_task_func(void* arg) {
         if (f.type == FRAME_BEACON) {
             route_learn(f.src_id, f.relay_id);
             route_update_rssi(f.src_id, item.rssi);
-            adr_on_beacon(f.src_id, f.relay_id);   // P1-3：多跳信标只算可见性，不对齐
+            // v3：第 2 字节是发送者角色；旧固件只有 1 字节 → 按 GCS 处理，退回旧行为
+            uint8_t sender_role = (f.payload_len >= 2) ? f.payload[1] : ROLE_GCS;
+            adr_on_beacon(f.src_id, f.relay_id, sender_role);   // 非 GCS 信标只算可见性，不对齐
 
             // T-2：协议版本宣告比对（只告警不拒绝）。
             // payload_len>=1 → 对端版本；==0 → 老固件/无版本字段，记 0。

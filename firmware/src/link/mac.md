@@ -13,7 +13,7 @@
 - `frame_codec.h`（解析 `ack_req` / `src_id` / `seq`；`frame_qos_of` 取 QoS）
 - `duty.h`（占空比硬上限）
 - `service/ratelimit.h`（按 QoS 的准入整形，P1-10）
-- `adr.h`（mac_task 循环顶部调 `adr_tick` 切 SF）
+- `adr.h`（mac_task 循环顶部调 `adr_tick` 切 SF、`air_beacon_tick` 发 AIR 低频信标）
 - `service/watchdog.h`（mac_task 订阅任务看门狗；mac_send 等 ACK 期间喂狗）
 - 被 `mesh`（转发）、`mav_router`（业务帧）调用
 
@@ -128,9 +128,9 @@ ACK 的收发两端都在 mesh_task 里，mac 只提供 `mac_send_ack` 和 `mac_
 ### mac_task（core0 prio 20）
 
 任务开头 `watchdog_register_current()` 订阅任务看门狗，循环每轮 `watchdog_feed()`（P0-1）。
-循环顶部先调 `adr_tick()`（ADR 周期切 SF，与收发同任务串行不冲突），再按 hi→med→lo 读 3 个优先级队列（hi/med 非阻塞，lo 5ms 超时），逐帧 mac_send
+循环顶部先调 `adr_tick()`（ADR 周期切 SF），紧跟 `air_beacon_tick()`（AIR 低频在场信标，独立于 ADR 开关），再按 hi→med→lo 读 3 个优先级队列（hi/med 非阻塞，lo 5ms 超时），逐帧 mac_send
 
-`adr_tick()` 和所有发送在同一个任务里串行跑，这样切 SF 不会和 SPI 收发撞上。
+`adr_tick()` / `air_beacon_tick()` 和所有发送在同一个任务里串行跑，这样切 SF 与信标发送不会和 SPI 收发撞上。
 
 
 ### 优先级队列

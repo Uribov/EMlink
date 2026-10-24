@@ -27,6 +27,7 @@ void nvs_cfg_factory(cfg_t* out) {
     out->ack_timeout_ms = 300;
     out->retries        = 3;
     out->beacon_s       = 1;
+    out->air_beacon_s   = 10;       // AIR 低频在场信标：默认 10s 一次
     out->failsafe_s     = 3;
     out->auto_wifi_s    = 30;       // 上电 30s 无链路 → 自动进 WiFi 维护模式
     out->adr_en         = 1;        // ADR 默认开启
@@ -69,6 +70,8 @@ bool nvs_cfg_load(cfg_t* out) {
     out->ack_timeout_ms = p.getUInt("ack_timeout_ms", 300);
     out->retries        = p.getUChar("retries", 3);
     out->beacon_s       = p.getUShort("beacon_s", 1);
+    out->air_beacon_s   = p.getUShort("air_beacon_s", 10);
+    if (out->air_beacon_s > 60) out->air_beacon_s = 60;   // 旧值/异常值兜底
     out->failsafe_s     = p.getUShort("failsafe_s", 3);
     out->auto_wifi_s    = p.getUShort("auto_wifi_s", 30);
     if (out->auto_wifi_s < 15) out->auto_wifi_s = 15;   // 旧值/异常值兜底（钳制，不是拒绝）
@@ -114,6 +117,7 @@ bool nvs_cfg_save(const cfg_t* in) {
     p.putUInt("ack_timeout_ms", in->ack_timeout_ms);
     p.putUChar("retries", in->retries);
     p.putUShort("beacon_s", in->beacon_s);
+    p.putUShort("air_beacon_s", in->air_beacon_s);
     p.putUShort("failsafe_s", in->failsafe_s);
     p.putUShort("auto_wifi_s", in->auto_wifi_s);
     p.putUChar("adr_en", in->adr_en ? 1 : 0);
@@ -223,6 +227,9 @@ bool nvs_cfg_value_ok(const char* key, const char* val) {
     if (strcmp(key, "beacon_s") == 0) {
         return parse_long(val, &l) && l >= 1 && l <= 60;
     }
+    if (strcmp(key, "air_beacon_s") == 0) {
+        return parse_long(val, &l) && l >= 0 && l <= 60;   // 0 = 关闭
+    }
     if (strcmp(key, "failsafe_s") == 0) {
         return parse_long(val, &l) && l >= 1 && l <= 60;
     }
@@ -327,6 +334,8 @@ bool nvs_cfg_set(const char* key, const char* val) {
         p.putUChar("retries", (uint8_t)atoi(val));
     } else if (strcmp(key, "beacon_s") == 0) {
         p.putUShort("beacon_s", (uint16_t)atoi(val));
+    } else if (strcmp(key, "air_beacon_s") == 0) {
+        p.putUShort("air_beacon_s", (uint16_t)atoi(val));
     } else if (strcmp(key, "failsafe_s") == 0) {
         p.putUShort("failsafe_s", (uint16_t)atoi(val));
     } else if (strcmp(key, "auto_wifi_s") == 0) {
@@ -392,6 +401,8 @@ bool nvs_cfg_get(const char* key, char* val, size_t len) {
         snprintf(val, len, "%u", p.getUChar("retries", 3));
     } else if (strcmp(key, "beacon_s") == 0) {
         snprintf(val, len, "%u", p.getUShort("beacon_s", 1));
+    } else if (strcmp(key, "air_beacon_s") == 0) {
+        snprintf(val, len, "%u", p.getUShort("air_beacon_s", 10));
     } else if (strcmp(key, "failsafe_s") == 0) {
         snprintf(val, len, "%u", p.getUShort("failsafe_s", 3));
     } else if (strcmp(key, "auto_wifi_s") == 0) {

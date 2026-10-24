@@ -38,8 +38,9 @@ uint16_t mesh_next_seq();
 bool mesh_send_ctrl(uint8_t type, uint8_t dst_id, uint8_t qos, bool ack_req,
                     const uint8_t* payload, size_t len);
 
-// GCS 广播 BEACON（邻居据此评估链路质量，架构 §5）
-bool mesh_send_beacon();
+// 广播 BEACON（邻居据此评估链路质量/在场，架构 §5）
+// sender_role = 发送者角色（ROLE_*）；接收端只有 ROLE_GCS 的信标能当 ADR 锚点
+bool mesh_send_beacon(uint8_t sender_role);
 
 // ping 探测：发 FRAME_PING 帧测 RTT。返回 rtt_ms（<0 = 超时/失败）；
 // rssi_out（可空）输出对方信号。阻塞等待，最长 timeout_ms。

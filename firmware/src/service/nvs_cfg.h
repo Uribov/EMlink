@@ -25,6 +25,7 @@ struct cfg_t {
     uint32_t ack_timeout_ms;  // 300
     uint8_t  retries;         // 3
     uint16_t beacon_s;        // 1
+    uint16_t air_beacon_s;    // 10（AIR 低频在场信标间隔，0=关闭）
     uint16_t failsafe_s;      // 3
     uint16_t auto_wifi_s;     // 上电后多少秒自动进 WiFi 维护模式（15~60，钳制；不可关闭）
     uint8_t  adr_en;          // ADR 总开关：1=开（默认），0=关（固定配置 SF，不做协商）

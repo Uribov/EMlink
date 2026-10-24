@@ -27,6 +27,12 @@ static volatile bool     g_compat = false;          // 是否处于降级兼容�
 static volatile uint32_t g_last_any_beacon_ms = 0;  // 最近一次收到任意信标（含多跳）
 static volatile uint32_t g_first_any_beacon_ms = 0; // 第一次收到任意信标的时刻
 static volatile uint8_t  g_anchor_src_id = 0;       // 当前锚点 node_id，0=未知
+static volatile uint32_t g_air_seen = 0;            // 收到 AIR 在场信标的次数（不参与多跳语义）
+
+// ---- AIR 低频在场信标（独立于 ADR 开关）----
+static volatile uint32_t g_air_beacon_s = 10;        // 间隔秒数（NVS air_beacon_s，0=关闭）
+static volatile uint32_t g_last_air_beacon_ms = 0;   // 上次发送时刻
+static volatile uint32_t g_air_beacon_count = 0;     // 已发出的 AIR 信标数
 
 void adr_set_enabled(bool on) { g_adr_enabled = on; }
 bool adr_is_enabled(void)     { return g_adr_enabled; }
@@ -43,12 +49,15 @@ void adr_init() {
     g_last_any_beacon_ms = 0;
     g_first_any_beacon_ms = 0;
     g_anchor_src_id = 0;
+    g_last_air_beacon_ms = millis();   // 开机后先等一个间隔再发，避免启动瞬间抢空口
+    g_air_beacon_count = 0;
 
     // 读 NVS（load 内部对 adr_en / SF×BW 组合做了兜底），决定是否参与 ADR
     cfg_t cfg;
     nvs_cfg_load(&cfg);
     g_cfg_sf = cfg.sf;
     g_adr_enabled = (cfg.adr_en != 0);
+    g_air_beacon_s = cfg.air_beacon_s;
 
     if (g_adr_enabled) {
         g_sf = ADR_SF_SLOW;
@@ -59,7 +68,18 @@ void adr_init() {
 }
 
 // 收到 BEACON：relay_id==0 为本机直收（权威信标，参与对齐）；否则只算"系统在场"
-void adr_on_beacon(uint8_t src_id, uint8_t relay_id) {
+void adr_on_beacon(uint8_t src_id, uint8_t relay_id, uint8_t sender_role) {
+    // 非 GCS 发的信标只是"在场宣告"，不参与任何时间对齐（放在 ADR 开关判断之前：
+    // 即使本机 adr=off 也要能看见飞机还活着）
+    if (sender_role != ROLE_GCS) {
+        uint32_t t = millis();
+        g_last_any_beacon_ms = t;
+        if (g_first_any_beacon_ms == 0) g_first_any_beacon_ms = t;
+        // 单独计数：AIR 在场信标不是"多跳"，别污染 g_hop_count 的语义
+        g_air_seen++;
+        return;
+    }
+
     if (!g_adr_enabled) return;   // 关闭 ADR：忽略对端信标，不跟着改 SF
 
     uint32_t now = millis();
@@ -126,7 +146,9 @@ void adr_tick() {
     if (role != ROLE_GCS && !g_compat) {
         bool lost = false;
         if (g_has_beacon)         lost = (uint32_t)(now - g_last_beacon_ms) > ADR_BEACON_LOST_MS;
-        else if (g_hop_count > 0) lost = (uint32_t)(now - g_first_any_beacon_ms) > ADR_BEACON_LOST_MS;
+        // 收到过任意信标（多跳中转 或 同级 AIR 在场）却始终没等到权威信标 → 说明拿不到锚点
+        else if (g_hop_count > 0 || g_air_seen > 0)
+            lost = (uint32_t)(now - g_first_any_beacon_ms) > ADR_BEACON_LOST_MS;
         if (lost) {
             g_compat = true;
             g_desync++;
@@ -148,7 +170,7 @@ void adr_tick() {
                 radio_set_sf(ADR_SF_SLOW);
                 g_sf = ADR_SF_SLOW;
             }
-            mesh_send_beacon();
+            mesh_send_beacon(ROLE_GCS);
             return;   // 本 tick 就停 SF9，下个 tick 再按相位切
         }
 
@@ -187,11 +209,26 @@ void adr_tick() {
     }
 }
 
+// AIR 低频在场信标：不走 adr_tick（那个函数在 adr=off 时直接 return），
+// 用独立 millis 计时；不切 SF，使用当前速率发送。
+void air_beacon_tick() {
+    if (role_state_get() != ROLE_AIR) return;
+    if (g_air_beacon_s == 0) return;   // 0 = 关闭
+
+    uint32_t now = millis();
+    if ((uint32_t)(now - g_last_air_beacon_ms) < g_air_beacon_s * 1000) return;
+
+    g_last_air_beacon_ms = now;        // 先记时刻：即使入队失败也不每 tick 重试
+    if (mesh_send_beacon(ROLE_AIR)) g_air_beacon_count++;
+}
+
 uint8_t adr_current_sf() { return g_adr_enabled ? g_sf : g_cfg_sf; }
 
 uint32_t adr_beacon_count()       { return g_beacon_count; }
 uint32_t adr_beacon_hop_count()   { return g_hop_count; }
 uint32_t adr_desync_count()       { return g_desync; }
 uint32_t adr_multi_anchor_count() { return g_multi_anchor; }
+uint32_t adr_air_beacon_count()   { return g_air_beacon_count; }
+uint32_t adr_air_seen_count()     { return g_air_seen; }
 bool     adr_has_beacon()         { return g_has_beacon; }
 bool     adr_compat_mode()        { return g_compat; }

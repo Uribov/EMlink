@@ -101,7 +101,7 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 1b. 撞号检测（P0-4）：`src_id == 本机 && !seq_is_mine(seq)`（陌生帧自称本机号）→ `g_id_conflict++`
 2. ACK 帧 → `mac_on_ack_rx` + 匹配 ping 等待（`g_ping_wait_seq`），continue
 3. 去重 `mesh_ingress`（命中 → drop_dup）
-4. BEACON 帧 → `route_learn(src, relay_id)` + `route_update_rssi` + `adr_on_beacon(src, relay_id)`，不 continue → 继续走到转发判定（`dst=0`、`ttl>0` → 中继转发一次，P1-3：信标可多跳）
+4. BEACON 帧 → `route_learn(src, relay_id)` + `route_update_rssi` + 取 `sender_role`（`payload_len>=2 ? payload[1] : ROLE_GCS`）→ `adr_on_beacon(src, relay_id, sender_role)`，不 continue → 继续走到转发判定（`dst=0`、`ttl>0` → 中继转发一次，P1-3：信标可多跳）
 5. PING 帧 → 回 ACK，不投递不转发，continue
 6. 数据帧且 ack_req → `mac_send_ack`
 7. 广播帧 → `route_learn(src, relay_id)` 学反向路径
@@ -132,6 +132,13 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 这条边界的关键在于把「我解不开」和「帧坏了」分开：前者照样转发，后者才丢。
 
 
+### BEACON payload 兼容（v3）
+
+- 新格式：`payload[0]` = 协议版本，`payload[1]` = 发送者角色（`ROLE_*`）
+- 接收端 `payload_len >= 2` 才读角色；只有 1 字节（旧固件）时默认 `ROLE_GCS`，保持旧固件之间原有的「信标=锚点」行为
+- 版本号仍只用于比对告警，不拒绝帧；新旧混跑时旧 AIR 信标会被当成锚点，所以升级需 GCS/AIR 两端一起刷
+
+
 ### 去重实现
 
 - 键 (src_id, seq)；每源 last_seq + 256bit 位图；位 diff=last_seq-seq
@@ -144,7 +151,7 @@ Mesh 核心：决定「收到一帧后，转发还是丢，还是上交本机」
 
 - `mesh_send(dst,qos,ack,payload,len,orig_sysid)`：发 FRAME_DATA，单播查 route_next_hop 定 relay_id，未知回退广播；len 上限 175，frame_encode 前 `crypto_seal_frame` 加密
 - `mesh_send_ctrl(type,dst,qos,ack,payload,len)`：发控制帧（FRAME_NACK/FRAME_CFG），同样走加密 + relay 逻辑
-- `mesh_send_beacon()`：FRAME_BEACON，payload = 1 字节协议版本（`EM_PROTO_VERSION`，T-2），`ttl = MESH_BEACON_TTL`(=2：GCS 发 + 最多 1 跳转发，P1-3)，proto=CUSTOM（不加密）
+- `mesh_send_beacon(sender_role)`：FRAME_BEACON，payload = 2 字节 `{协议版本 EM_PROTO_VERSION, 发送者角色}`（v3），`ttl = MESH_BEACON_TTL`(=2：GCS 发 + 最多 1 跳转发，P1-3)，proto=CUSTOM（不加密）。兼容规则：旧固件 `payload_len==1` → 接收端按 `ROLE_GCS` 处理，退回旧行为（当成 ADR 锚点）；新固件只有 GCS 发的信标参与对齐，AIR 的 2 字节信封只算「在场」
 - `mesh_ping(dst,timeout,rssi_out)`：发 FRAME_PING 等 ACK 测 RTT，阻塞轮询 `g_ping_done`（mesh_task 收到匹配 ACK 时置位）
 - 四个发送函数 seq 都走 `mesh_next_seq()`（不直接碰 `g_seq`）
 
