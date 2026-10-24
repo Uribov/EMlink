@@ -91,7 +91,7 @@ input[type=range]::-moz-range-track{height:1px;background:var(--line);border:0}
 /* ---------- 频谱 / 瀑布 ---------- */
 .scope{flex:none;padding:16px 16px 12px}
 .scope canvas{display:block;width:100%;border:1px solid var(--line2);background:#080808}
-#spec-canvas{height:150px}
+#spec-canvas{height:168px}
 .wf-title{margin:14px 0 10px}
 #wf-canvas{height:170px;image-rendering:pixelated}
 

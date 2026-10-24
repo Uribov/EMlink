@@ -53,22 +53,26 @@ function drawSpectrum(snap) {
   const spec = snap.spec || [];
   ctx.clearRect(0, 0, w, h);
 
+  // 底部留一条横轴给频率刻度
+  const axisH = 16;
+  const plotH = h - axisH;
+
   // 网格：竖 8 格、横 4 格，1px 发丝线
   ctx.strokeStyle = '#1a1a1a';
   ctx.lineWidth = 1;
   for (let i = 1; i < 8; i++) {
     const x = Math.round((w * i) / 8) + 0.5;
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, plotH); ctx.stroke();
   }
   for (let i = 1; i < 4; i++) {
-    const y = Math.round((h * i) / 4) + 0.5;
+    const y = Math.round((plotH * i) / 4) + 0.5;
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
   }
 
   if (!spec.length) {
     ctx.fillStyle = '#4a4a4a';
     ctx.font = '11px ui-monospace, Menlo, Consolas, monospace';
-    ctx.fillText('等待采集…', 12, h / 2);
+    ctx.fillText('等待采集…', 12, plotH / 2);
     return;
   }
 
@@ -84,8 +88,8 @@ function drawSpectrum(snap) {
   const span = Math.max(rHi - rLo, 1);
 
   // 底噪基线
-  const floorY = h - ((snap.floor - rLo) / span) * h;
-  if (floorY > 0 && floorY < h) {
+  const floorY = plotH - ((snap.floor - rLo) / span) * plotH;
+  if (floorY > 0 && floorY < plotH) {
     ctx.strokeStyle = '#2c2c2c';
     ctx.setLineDash([2, 4]);
     ctx.beginPath();
@@ -96,26 +100,68 @@ function drawSpectrum(snap) {
   }
 
   // 频谱：密密麻麻的柱状图。每根柱子上沿 = 该频点的 dBFS，
-  // 柱宽自适应画布（256 个点铺满，中间留 1px 缝隙，读起来像 SDR 的密集竖线）
+  // 柱宽自适应画布（512 个点铺满，中间留 1px 缝隙，读起来像 SDR 的密集竖线）
   const n = spec.length;
   const barStep = w / n;
   const barW = Math.max(1, barStep - 1);
 
   for (let i = 0; i < n; i++) {
     const x = i * barStep;
-    const y = h - ((spec[i] - rLo) / span) * h;
-    const top = Math.max(0, Math.min(h, y));
-    if (h - top < 1) continue;
+    const y = plotH - ((spec[i] - rLo) / span) * plotH;
+    const top = Math.max(0, Math.min(plotH, y));
+    if (plotH - top < 1) continue;
 
     // 超过底噪 10 dB 的柱子用亮白，其余压到很暗 —— 噪声几乎看不见，只有信号跳出来
     const strong = spec[i] > snap.floor + 10;
     ctx.fillStyle = strong ? '#ededed' : '#2a2a2a';
-    ctx.fillRect(x, top, barW, h - top);
+    ctx.fillRect(x, top, barW, plotH - top);
   }
 
-  // 中心频率刻度
-  ctx.fillStyle = '#4a4a4a';
+  // ---- 横轴：具体频率刻度 ----
+  const centerHz = snap.center_hz || 915000000;
+  const spanHz = snap.span_hz || 1000000;
+  const loHz = centerHz - spanHz / 2;
+
+  ctx.strokeStyle = '#2c2c2c';
+  ctx.beginPath();
+  ctx.moveTo(0, plotH + 0.5);
+  ctx.lineTo(w, plotH + 0.5);
+  ctx.stroke();
+
   ctx.font = '9px ui-monospace, Menlo, Consolas, monospace';
+  ctx.fillStyle = '#7d7d7d';
+  ctx.textBaseline = 'top';
+
+  const ticks = 8;                       // 8 段 → 9 个刻度
+  for (let i = 0; i <= ticks; i++) {
+    const frac = i / ticks;
+    const x = frac * w;
+    const hz = loHz + frac * spanHz;
+    const isCenter = Math.abs(frac - 0.5) < 1e-6;
+
+    // 刻度线
+    ctx.strokeStyle = isCenter ? '#4a4a4a' : '#2c2c2c';
+    ctx.beginPath();
+    ctx.moveTo(Math.round(x) + 0.5, plotH);
+    ctx.lineTo(Math.round(x) + 0.5, plotH + (isCenter ? 5 : 3));
+    ctx.stroke();
+
+    // 标签：MHz 保留 3 位小数（= kHz 精度）。首尾往里收，避免超出画布。
+    // 中心那格加三角并转亮白，一眼对上左栏的中心频率。
+    const label = isCenter
+      ? '▲' + (hz / 1e6).toFixed(3)
+      : (hz / 1e6).toFixed(3);
+    ctx.fillStyle = isCenter ? '#ededed' : '#7d7d7d';
+    const tw = ctx.measureText(label).width;
+    let tx = x - tw / 2;
+    if (tx < 1) tx = 1;
+    if (tx + tw > w - 1) tx = w - 1 - tw;
+    ctx.fillText(label, tx, plotH + 4);
+  }
+
+  // 左上角 dBFS 标注
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#4a4a4a';
   ctx.fillText(`${snap.floor.toFixed(0)} dBFS 底噪`, 8, 12);
   ctx.fillText(`${snap.peak.toFixed(0)} dBFS 峰值`, 8, 24);
 }

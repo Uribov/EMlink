@@ -133,6 +133,7 @@ class Spectrum:
         self._floor = -120.0
         self._peak = -120.0
         self._row = [0] * SPEC_BINS      # 最新一行瀑布（0..255）
+        self.center_hz = 915_000_000     # 由 SDRCore.set_freq 同步，供横轴标注用
 
     def update(self, iq: np.ndarray) -> None:
         n = min(FFT_BINS, iq.size)
@@ -171,6 +172,9 @@ class Spectrum:
                 "floor": round(self._floor, 1),
                 "peak": round(self._peak, 1),
                 "row": self._row,     # 只有最新一行，前端自己往下累积
+                # 横轴：中心频率与总跨度，前端据此标出每个刻度的具体频率
+                "center_hz": self.center_hz,
+                "span_hz": SAMP_RATE,
             }
 
 
@@ -376,6 +380,7 @@ class SDRCore:
         if hz == self.freq_hz:
             return
         self.freq_hz = hz
+        self.spectrum.center_hz = hz     # 横轴标注跟着变
         if self._running:
             self._restart_proc()
 
