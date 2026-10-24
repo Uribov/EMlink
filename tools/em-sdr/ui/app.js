@@ -72,10 +72,10 @@ function drawSpectrum(snap) {
     return;
   }
 
-  // 纵向范围：故意拉开。底噪往下 12 dB、往上 45 dB（不够容纳峰值时再扩）。
-  // 范围越大，噪声起伏在图上的占比越小 —— 看起来只有一点点，信号峰才跳得出来。
-  const lo = snap.floor - 12;
-  const hi = Math.max(snap.floor + 45, snap.peak + 3);
+  // 纵向范围：继续拉开到 90 dB（底噪往下 15、往上 75）。
+  // 噪声起伏 ~10 dB 只占图高 11%，几乎贴着底部；代价是弱信号也会被压扁。
+  const lo = snap.floor - 15;
+  const hi = Math.max(snap.floor + 75, snap.peak + 5);
   if (!specRange) specRange = [lo, hi];
   specRange[0] += (lo - specRange[0]) * 0.15;
   specRange[1] += (hi - specRange[1]) * 0.15;
@@ -107,9 +107,9 @@ function drawSpectrum(snap) {
     const top = Math.max(0, Math.min(h, y));
     if (h - top < 1) continue;
 
-    // 超过底噪一定幅度的柱子用亮白，其余用中灰 —— 一眼能分出"有信号"和"只有噪声"
-    const strong = spec[i] > snap.floor + 6;
-    ctx.fillStyle = strong ? '#ededed' : '#5a5a5a';
+    // 超过底噪 10 dB 的柱子用亮白，其余压到很暗 —— 噪声几乎看不见，只有信号跳出来
+    const strong = spec[i] > snap.floor + 10;
+    ctx.fillStyle = strong ? '#ededed' : '#2a2a2a';
     ctx.fillRect(x, top, barW, h - top);
   }
 
