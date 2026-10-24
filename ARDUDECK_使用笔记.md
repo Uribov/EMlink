@@ -224,7 +224,19 @@ FLEET · 4
 
 ### 逐架操作与分组上传
 
-Fleet 面板每架一行 `SYS N`，点一下切到那架。切过去之后，遥测、航点列表、参数都作用在当前选中那架上。
+Fleet 面板每架一行，行里有三个控件，靠 `data-tip` 区分：
+
+| 控件 | `data-tip` | 作用 |
+|---|---|---|
+| 菱形图标 | `QUAD - disarmed (click to set identity colour)` | 设置该机的身份颜色 |
+| 复选框 | `Select for group commands` | 勾选参与组命令（多选） |
+| 行尾图标 | `Orders` | 对该机下发命令 |
+
+行本身带 `cursor-grab` / `active:cursor-grabbing`，是给拖拽排序用的，不是选中按钮。
+
+**判断当前在看哪一架**：遥测区末尾会显示当前机的 `SYS N`。这是目前找到的唯一可靠标识。
+
+（截至 2026-10-21 未找到「切换主视图到指定机」的直接入口 —— Fleet 行的三个控件都不是，地图标记的点击目标也没定位到。）
 
 航点有多分组时，顶部那个上传图标会变成禁用，提示改成：
 
@@ -246,7 +258,7 @@ code: 'EROFS', syscall: 'chmod',
 path: '.../app.asar.unpacked/resources/sitl/linux/inav_SITL'
 ```
 
-界面上的表现是永久停在 `Launching…`，`Console Output` 一片空白，只有应用日志里能看到这条 EROFS。单机模式不走这段 chmod，所以不受影响。
+界面上的表现是永久停在 `Launching…`，`Console Output` 一片空白，只有应用日志里能看到这条 EROFS（日志现在写 `~/ardudeck-logs/ardudeck.log`）。单机模式不走这段 chmod，所以不受影响。
 
 解法是解压后运行，得到普通可写目录：
 
